@@ -81,6 +81,11 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("POST /api/v1/servers/{id}/functions", detail.CreateFunction)
 	mux.HandleFunc("DELETE /api/v1/servers/{id}/functions/{schema}/{name}", detail.DropFunction)
 
+	mux.HandleFunc("GET /api/v1/servers/{id}/indexes/suggestions", detail.SuggestIndexes)
+	mux.HandleFunc("GET /api/v1/servers/{id}/indexes/unused", detail.UnusedIndexes)
+	mux.HandleFunc("POST /api/v1/servers/{id}/indexes/{schema}/{name}/reindex-concurrently", detail.ReindexConcurrently)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/indexes/{schema}/{name}", detail.DropIndex)
+
 	mux.HandleFunc("GET /api/v1/servers/{id}/bloat", detail.Bloat)
 	mux.HandleFunc("GET /api/v1/servers/{id}/wraparound", detail.Wraparound)
 	mux.HandleFunc("GET /api/v1/servers/{id}/health-score", detail.HealthScore)

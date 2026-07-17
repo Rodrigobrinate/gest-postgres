@@ -21,7 +21,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { RotateCcw, Zap } from "lucide-react";
+import { RotateCcw, Zap, Trash2, Wrench } from "lucide-react";
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+}
 
 const ORDER_OPTIONS = [
   { value: "total_time", label: "Tempo total" },
@@ -55,6 +60,40 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
       queryClient.invalidateQueries({ queryKey: ["servers", serverId] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao habilitar"),
+  });
+
+  const { data: suggestions } = useQuery({
+    queryKey: ["servers", serverId, "index-suggestions", database],
+    queryFn: () => api.suggestIndexes(serverId, database),
+    enabled: !!database,
+  });
+
+  const { data: unused } = useQuery({
+    queryKey: ["servers", serverId, "unused-indexes", database],
+    queryFn: () => api.unusedIndexes(serverId, database),
+    enabled: !!database,
+  });
+
+  const invalidateUnused = () =>
+    queryClient.invalidateQueries({ queryKey: ["servers", serverId, "unused-indexes"] });
+
+  const reindex = useMutation({
+    mutationFn: (idx: { schema: string; name: string }) =>
+      api.reindexConcurrently(serverId, database, idx.schema, idx.name),
+    onSuccess: (_d, idx) => {
+      toast.success(`${idx.name} reconstruído`);
+      invalidateUnused();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao reconstruir índice"),
+  });
+
+  const dropIndex = useMutation({
+    mutationFn: (idx: { schema: string; name: string }) => api.dropIndex(serverId, database, idx.schema, idx.name),
+    onSuccess: (_d, idx) => {
+      toast.success(`${idx.name} excluído`);
+      invalidateUnused();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao excluir índice"),
   });
 
   if (!isLoading && data && !data.available) {
@@ -146,6 +185,72 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
           )}
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="p-0">
+            <div className="border-b p-3 text-sm font-medium">Sugestão de índices</div>
+            {!suggestions || suggestions.length === 0 ? (
+              <p className="text-muted-foreground p-6 text-sm">
+                Nenhuma tabela com padrão claro de seq scan alto em relação a uso de índice.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {suggestions.map((s) => (
+                  <li key={`${s.schema}.${s.table}`} className="p-3 text-sm">
+                    <span className="font-mono text-xs font-medium">
+                      {s.schema}.{s.table}
+                    </span>
+                    <p className="text-muted-foreground text-xs">{s.detail}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-0">
+            <div className="border-b p-3 text-sm font-medium">Índices não usados</div>
+            {!unused || unused.length === 0 ? (
+              <p className="text-muted-foreground p-6 text-sm">Nenhum índice ocioso encontrado.</p>
+            ) : (
+              <ul className="divide-y">
+                {unused.map((u) => (
+                  <li key={`${u.schema}.${u.name}`} className="flex items-center justify-between gap-2 p-3 text-sm">
+                    <div className="min-w-0">
+                      <span className="font-mono text-xs font-medium">{u.name}</span>
+                      <p className="text-muted-foreground text-xs">
+                        {u.schema}.{u.table} · {formatBytes(u.size_bytes)} · 0 scans
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="REINDEX CONCURRENTLY"
+                        disabled={reindex.isPending}
+                        onClick={() => reindex.mutate({ schema: u.schema, name: u.name })}
+                      >
+                        <Wrench className="size-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-red-600"
+                        disabled={dropIndex.isPending}
+                        onClick={() => dropIndex.mutate({ schema: u.schema, name: u.name })}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

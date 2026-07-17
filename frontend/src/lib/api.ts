@@ -288,6 +288,23 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export interface IndexSuggestion {
+  schema: string;
+  table: string;
+  seq_scan: number;
+  seq_tup_read: number;
+  idx_scan: number;
+  live_rows: number;
+  detail: string;
+}
+
+export interface UnusedIndex {
+  schema: string;
+  table: string;
+  name: string;
+  size_bytes: number;
+}
+
 export interface CapacityForecast {
   current_disk_mb: number;
   disk_limit_mb: number;
@@ -648,6 +665,24 @@ export const api = {
 
   capacityForecast: (id: string) =>
     request<CapacityForecast>(`/api/v1/servers/${id}/capacity-forecast`),
+
+  suggestIndexes: (id: string, database: string) =>
+    request<IndexSuggestion[]>(`/api/v1/servers/${id}/indexes/suggestions?database=${encodeURIComponent(database)}`),
+
+  unusedIndexes: (id: string, database: string) =>
+    request<UnusedIndex[]>(`/api/v1/servers/${id}/indexes/unused?database=${encodeURIComponent(database)}`),
+
+  reindexConcurrently: (id: string, database: string, schema: string, name: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/indexes/${encodeURIComponent(schema)}/${encodeURIComponent(name)}/reindex-concurrently?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
+
+  dropIndex: (id: string, database: string, schema: string, name: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/indexes/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
 };
 
 export { ApiError };
