@@ -55,7 +55,7 @@ export function ServerTable() {
           <TableHead>Nome</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Versão</TableHead>
-          <TableHead>Tamanho</TableHead>
+          <TableHead>Recursos</TableHead>
           <TableHead>Porta</TableHead>
           <TableHead>Banco</TableHead>
           <TableHead className="text-right">Ações</TableHead>

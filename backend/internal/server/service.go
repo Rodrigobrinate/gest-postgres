@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gest-postgres/backend/internal/crypto"
 	"github.com/gest-postgres/backend/internal/docker"
+	"github.com/jackc/pgx/v5"
 )
 
 var ErrValidation = fmt.Errorf("entrada inválida")
@@ -156,7 +158,40 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 		return
 	}
 
+	// Container "running" só quer dizer que o processo subiu — no primeiro boot,
+	// initdb ainda roda por alguns segundos depois disso. Confirma que o Postgres
+	// já aceita conexão de verdade antes de marcar como pronto pro usuário.
+	if err := waitPostgresReady(ctx, record.ContainerName, record.Username, plainPassword, record.DatabaseName, 60*time.Second); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
+
 	_ = s.repo.UpdateStatus(ctx, serverID, StatusRunning)
+}
+
+func waitPostgresReady(ctx context.Context, containerName, username, password, database string, timeout time.Duration) error {
+	connString := fmt.Sprintf(
+		"postgres://%s:%s@%s:5432/%s?sslmode=disable&connect_timeout=2",
+		url.QueryEscape(username), url.QueryEscape(password), containerName, url.QueryEscape(database),
+	)
+
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		conn, err := pgx.Connect(ctx, connString)
+		if err == nil {
+			conn.Close(ctx)
+			return nil
+		}
+		lastErr = err
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("postgres não ficou pronto a tempo: %w", lastErr)
 }
 
 func (s *Service) markError(ctx context.Context, serverID string) {

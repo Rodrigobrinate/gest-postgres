@@ -28,10 +28,10 @@ import { Plus } from "lucide-react";
 const VERSIONS = ["17", "16", "15", "14", "13"];
 
 const PRESETS: { value: Preset; label: string; hint: string }[] = [
-  { value: "small", label: "Pequeno", hint: "1 vCPU · 1 GB RAM · 10 GB disco — dev/teste" },
-  { value: "medium", label: "Médio", hint: "2 vCPU · 4 GB RAM · 50 GB disco — produção pequena" },
-  { value: "large", label: "Grande", hint: "4 vCPU · 16 GB RAM · 200 GB disco — produção" },
-  { value: "custom", label: "Customizado", hint: "Você define CPU, RAM e disco" },
+  { value: "small", label: "Pequeno", hint: "limite do container: 1 vCPU · 1 GB RAM · 10 GB disco" },
+  { value: "medium", label: "Médio", hint: "limite do container: 2 vCPU · 4 GB RAM · 50 GB disco" },
+  { value: "large", label: "Grande", hint: "limite do container: 4 vCPU · 16 GB RAM · 200 GB disco" },
+  { value: "custom", label: "Customizado", hint: "você define o limite de CPU, RAM e disco do container" },
 ];
 
 const emptyForm = {
@@ -155,7 +155,7 @@ export function CreateServerDialog() {
               </div>
 
               <div className="grid gap-2">
-                <Label>Tamanho</Label>
+                <Label>Recursos do container</Label>
                 <Select
                   value={form.preset}
                   onValueChange={(v) => v && setForm({ ...form, preset: v as Preset })}
