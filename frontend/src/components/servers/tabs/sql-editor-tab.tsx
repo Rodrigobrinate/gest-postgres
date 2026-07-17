@@ -3,10 +3,14 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import CodeMirror from "@uiw/react-codemirror";
+import { sql as sqlLang } from "@codemirror/lang-sql";
+import { keymap } from "@codemirror/view";
+import { Prec } from "@codemirror/state";
 import { api, ApiError, type QueryResult } from "@/lib/api";
 import { formatCell } from "@/lib/utils";
+import { useQueryHistory } from "@/lib/use-query-history";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -16,18 +20,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Play } from "lucide-react";
+import { Play, History } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const DEFAULT_SQL = "SELECT * FROM pg_catalog.pg_tables LIMIT 10;";
 
 export function SqlEditorTab({ serverId, database }: { serverId: string; database: string }) {
-  const [sql, setSql] = useState(DEFAULT_SQL);
+  const [sqlText, setSqlText] = useState(DEFAULT_SQL);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const { history, push } = useQueryHistory(`sql-history:${serverId}`);
 
   const run = useMutation({
-    mutationFn: () => api.runQuery(serverId, database, sql),
+    mutationFn: () => api.runQuery(serverId, database, sqlText),
     onSuccess: (data) => {
       setResult(data);
+      push(sqlText);
       toast.success(`${data.row_count} linha(s) em ${data.duration_ms}ms`);
     },
     onError: (e) => {
@@ -37,70 +45,118 @@ export function SqlEditorTab({ serverId, database }: { serverId: string; databas
   });
 
   function handleRun() {
-    if (!sql.trim()) return;
+    if (!sqlText.trim()) return;
     run.mutate();
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardContent className="flex flex-col gap-3 p-4">
-          <Textarea
-            value={sql}
-            onChange={(e) => setSql(e.target.value)}
-            rows={8}
-            className="font-mono text-sm"
-            placeholder="SELECT * FROM ..."
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                handleRun();
-              }
-            }}
-          />
-          <div className="flex items-center justify-between">
-            <p className="text-muted-foreground text-xs">
-              Ctrl/Cmd+Enter roda a query · banco: {database}
-            </p>
-            <Button onClick={handleRun} disabled={run.isPending}>
-              <Play className="size-4" />
-              {run.isPending ? "Rodando..." : "Rodar"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+  // Prec.highest garante que isso vence o keymap padrão do basicSetup — sem
+  // isso, Ctrl/Cmd+Enter só inseria uma linha nova em vez de rodar a query.
+  const runKeymap = Prec.highest(
+    keymap.of([
+      {
+        key: "Mod-Enter",
+        run: () => {
+          handleRun();
+          return true;
+        },
+      },
+    ])
+  );
 
-      {result && (
+  return (
+    <div className="flex gap-4">
+      <div className="flex flex-1 flex-col gap-4">
         <Card>
-          <CardContent className="p-0">
-            {result.columns.length === 0 ? (
-              <p className="text-muted-foreground p-6 text-sm">
-                {result.command_tag || "Comando executado"} — {result.duration_ms}ms
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {result.columns.map((c) => (
-                        <TableHead key={c}>{c}</TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {result.rows.map((row, i) => (
-                      <TableRow key={i}>
-                        {row.map((cell, j) => (
-                          <TableCell key={j} className="font-mono text-xs whitespace-nowrap">
-                            {formatCell(cell)}
-                          </TableCell>
+          <CardContent className="flex flex-col gap-3 p-4">
+            <div className="overflow-hidden rounded-md border">
+              <CodeMirror
+                value={sqlText}
+                height="200px"
+                extensions={[sqlLang(), runKeymap]}
+                onChange={(value) => setSqlText(value)}
+                basicSetup={{ lineNumbers: true, foldGutter: false }}
+                className="text-sm"
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <p className="text-muted-foreground text-xs">
+                  Ctrl/Cmd+Enter roda a query · banco: {database}
+                </p>
+                {history.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowHistory((v) => !v)}
+                  >
+                    <History className="size-3.5" />
+                    Histórico ({history.length})
+                  </Button>
+                )}
+              </div>
+              <Button onClick={handleRun} disabled={run.isPending}>
+                <Play className="size-4" />
+                {run.isPending ? "Rodando..." : "Rodar"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {result && (
+          <Card>
+            <CardContent className="p-0">
+              {result.columns.length === 0 ? (
+                <p className="text-muted-foreground p-6 text-sm">
+                  {result.command_tag || "Comando executado"} — {result.duration_ms}ms
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {result.columns.map((c) => (
+                          <TableHead key={c}>{c}</TableHead>
                         ))}
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+                    </TableHeader>
+                    <TableBody>
+                      {result.rows.map((row, i) => (
+                        <TableRow key={i}>
+                          {row.map((cell, j) => (
+                            <TableCell key={j} className="font-mono text-xs whitespace-nowrap">
+                              {formatCell(cell)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {showHistory && (
+        <Card className="h-fit w-80 shrink-0">
+          <CardContent className="p-0">
+            <div className="border-b p-3 text-sm font-medium">Histórico de queries</div>
+            <ul className="max-h-[400px] divide-y overflow-y-auto">
+              {history.map((q, i) => (
+                <li key={i}>
+                  <button
+                    className={cn(
+                      "hover:bg-accent w-full truncate px-3 py-2 text-left font-mono text-xs"
+                    )}
+                    title={q}
+                    onClick={() => setSqlText(q)}
+                  >
+                    {q}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}
