@@ -7,8 +7,15 @@ import { api, ApiError, type Privilege } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CreateRoleDialog } from "../create-role-dialog";
-import { ChevronDown, ChevronRight, ShieldCheck, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, ShieldCheck, Trash2 } from "lucide-react";
 
 export function UsersTab({ serverId, database }: { serverId: string; database: string }) {
   const { data: roles, isLoading } = useQuery({
@@ -17,6 +24,7 @@ export function UsersTab({ serverId, database }: { serverId: string; database: s
   });
 
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState<{ role: string; password: string } | null>(null);
 
   const queryClient = useQueryClient();
   const remove = useMutation({
@@ -26,6 +34,12 @@ export function UsersTab({ serverId, database }: { serverId: string; database: s
       queryClient.invalidateQueries({ queryKey: ["servers", serverId, "roles"] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao excluir usuário"),
+  });
+
+  const rotate = useMutation({
+    mutationFn: (name: string) => api.rotateRolePassword(serverId, name),
+    onSuccess: (result, name) => setNewPassword({ role: name, password: result.password }),
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao regenerar senha"),
   });
 
   return (
@@ -62,15 +76,26 @@ export function UsersTab({ serverId, database }: { serverId: string; database: s
                         {!r.can_login && <Badge variant="outline">sem login</Badge>}
                       </div>
                     </button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title="Excluir"
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => remove.mutate(r.name)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Regenerar senha"
+                        disabled={rotate.isPending}
+                        onClick={() => rotate.mutate(r.name)}
+                      >
+                        <KeyRound className="size-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Excluir"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => remove.mutate(r.name)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
                   </div>
                   {expanded === r.name && (
                     <RolePrivileges serverId={serverId} database={database} role={r.name} />
@@ -81,6 +106,32 @@ export function UsersTab({ serverId, database }: { serverId: string; database: s
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!newPassword} onOpenChange={(v) => !v && setNewPassword(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nova senha de &ldquo;{newPassword?.role}&rdquo;</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-xs">
+            Essa senha não fica guardada na plataforma — copie agora, você não vai poder ver de novo.
+          </p>
+          <code className="bg-muted block rounded-md border p-2 font-mono text-sm break-all">
+            {newPassword?.password}
+          </code>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                if (newPassword) {
+                  navigator.clipboard.writeText(newPassword.password);
+                  toast.success("Copiado");
+                }
+              }}
+            >
+              Copiar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

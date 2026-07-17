@@ -102,6 +102,20 @@ func (r *Repo) SetContainerID(ctx context.Context, id, containerID string) error
 	return nil
 }
 
+func (r *Repo) UpdatePassword(ctx context.Context, id, passwordEncrypted string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE servers SET password_encrypted = $1, updated_at = now() WHERE id = $2`,
+		passwordEncrypted, id,
+	)
+	if err != nil {
+		return fmt.Errorf("atualizando senha do servidor %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *Repo) Delete(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM servers WHERE id = $1`, id)
 	if err != nil {

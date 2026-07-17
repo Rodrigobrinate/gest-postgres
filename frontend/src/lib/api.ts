@@ -415,6 +415,15 @@ export const api = {
 
   getPassword: (id: string) => request<{ password: string }>(`/api/v1/servers/${id}/password`),
 
+  rotateSuperuserPassword: (id: string) =>
+    request<{ password: string }>(`/api/v1/servers/${id}/password/rotate`, { method: "POST" }),
+
+  rotateRolePassword: (id: string, name: string) =>
+    request<{ password: string }>(
+      `/api/v1/servers/${id}/roles/${encodeURIComponent(name)}/rotate-password`,
+      { method: "POST" }
+    ),
+
   slowQueries: (id: string, database: string, orderBy: "total_time" | "mean_time" | "calls") =>
     request<{ available: boolean; queries: SlowQuery[] }>(
       `/api/v1/servers/${id}/slow-queries?database=${encodeURIComponent(database)}&order_by=${orderBy}`

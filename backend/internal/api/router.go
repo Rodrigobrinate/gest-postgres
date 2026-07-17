@@ -25,6 +25,8 @@ func NewRouter(serverService *server.Service) http.Handler {
 
 	detail := NewDetailHandler(serverService)
 	mux.HandleFunc("GET /api/v1/servers/{id}/password", detail.Password)
+	mux.HandleFunc("POST /api/v1/servers/{id}/password/rotate", detail.RotateSuperuserPassword)
+	mux.HandleFunc("POST /api/v1/servers/{id}/roles/{name}/rotate-password", detail.RotateRolePassword)
 	mux.HandleFunc("GET /api/v1/servers/{id}/databases", detail.Databases)
 	mux.HandleFunc("GET /api/v1/servers/{id}/database-sizes", detail.DatabaseSizes)
 	mux.HandleFunc("GET /api/v1/servers/{id}/metrics-history", detail.MetricsHistory)

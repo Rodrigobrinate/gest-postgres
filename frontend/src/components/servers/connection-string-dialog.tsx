@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type ManagedServer } from "@/lib/api";
+import { api, ApiError, type ManagedServer } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { KeyRound, Copy, Eye, EyeOff } from "lucide-react";
+import { KeyRound, Copy, Eye, EyeOff, RefreshCw } from "lucide-react";
 
 export function ConnectionStringDialog({ server }: { server: ManagedServer }) {
   const [open, setOpen] = useState(false);
@@ -24,6 +24,17 @@ export function ConnectionStringDialog({ server }: { server: ManagedServer }) {
     queryFn: () => api.getPassword(server.id),
     enabled: open,
     staleTime: Infinity,
+  });
+
+  const queryClient = useQueryClient();
+  const rotate = useMutation({
+    mutationFn: () => api.rotateSuperuserPassword(server.id),
+    onSuccess: (result) => {
+      queryClient.setQueryData(["servers", server.id, "password"], result);
+      setReveal(true);
+      toast.success("Senha regenerada — connection string atualizada abaixo");
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao regenerar senha"),
   });
 
   const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
@@ -62,15 +73,27 @@ export function ConnectionStringDialog({ server }: { server: ManagedServer }) {
         <div className="grid gap-2">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground text-xs">String completa</span>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setReveal((r) => !r)}
-              title={reveal ? "Ocultar senha" : "Revelar senha"}
-            >
-              {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-              {reveal ? "Ocultar" : "Revelar senha"}
-            </Button>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={rotate.isPending}
+                onClick={() => rotate.mutate()}
+                title="Gerar uma nova senha pro superuser (invalida a atual)"
+              >
+                <RefreshCw className="size-3.5" />
+                {rotate.isPending ? "Regenerando..." : "Regenerar senha"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setReveal((r) => !r)}
+                title={reveal ? "Ocultar senha" : "Revelar senha"}
+              >
+                {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                {reveal ? "Ocultar" : "Revelar senha"}
+              </Button>
+            </div>
           </div>
           <div className="bg-muted flex items-center gap-2 rounded-md border p-2">
             <code className="flex-1 overflow-x-auto font-mono text-xs whitespace-nowrap">

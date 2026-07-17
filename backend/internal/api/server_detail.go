@@ -19,6 +19,24 @@ func NewDetailHandler(service *server.Service) *DetailHandler {
 	return &DetailHandler{service: service}
 }
 
+func (h *DetailHandler) RotateSuperuserPassword(w http.ResponseWriter, r *http.Request) {
+	password, err := h.service.RotateSuperuserPassword(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"password": password})
+}
+
+func (h *DetailHandler) RotateRolePassword(w http.ResponseWriter, r *http.Request) {
+	password, err := h.service.RotateRolePassword(r.Context(), r.PathValue("id"), r.PathValue("name"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"password": password})
+}
+
 func (h *DetailHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	roles, err := h.service.ListRoles(r.Context(), id)
