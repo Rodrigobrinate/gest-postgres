@@ -83,6 +83,7 @@ else
 	"$DOCKER" run --rm \
 		-v "$SCRIPT_DIR/backend:/src" \
 		-w /src \
+		-e GOTOOLCHAIN=auto \
 		"golang:${GO_MOD_VERSION}" \
 		go mod tidy
 	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" backend/go.mod backend/go.sum
