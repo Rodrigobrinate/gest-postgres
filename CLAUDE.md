@@ -43,31 +43,39 @@ Todo requisito do MVP abaixo é um checkbox. Ao implementar:
 Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → `sudo ./setup.sh` → criar/start/stop/restart/excluir servidor pela UI, Postgres realmente aceitando conexão). Ver histórico de commits a partir de `f5a557d` até `ee97d0e`.
 
 ### Configuração do Postgres (subset essencial, não tudo de REQUISITOS.md §4)
-- [ ] Form com os parâmetros mais impactantes: `max_connections`, `shared_buffers`, `work_mem`, `maintenance_work_mem`, `effective_cache_size`, `log_min_duration_statement`
-- [ ] Presets calculam esses valores automaticamente a partir do preset de recursos
-- [ ] Aplicar mudança → reload ou avisa que precisa restart
+- [x] ~~Form com os parâmetros mais impactantes: `max_connections`, `shared_buffers`, `work_mem`, `maintenance_work_mem`, `effective_cache_size`, `log_min_duration_statement`~~
+- [x] ~~Presets calculam esses valores automaticamente a partir do preset de recursos~~
+- [x] ~~Aplicar mudança → reload ou avisa que precisa restart~~
 - [ ] `pg_hba.conf` básico: tabela simples de regras (tipo, database, user, CIDR, método), sem drag-and-drop ainda
+
+Achado e corrigido um bug de arquitetura sério aqui: a config inicial entrava como flag `-c` no comando do container, que tem prioridade MAIOR que `ALTER SYSTEM` — nenhuma edição pós-criação nunca ia pegar, nem com restart. Agora tudo (inicial e edições) passa por `ALTER SYSTEM` + reload/restart, mesmo caminho.
 
 ### Banco de dados / objetos (mínimo pra ser usável)
 - [ ] Criar/listar/excluir database (dá pra fazer via editor SQL, mas sem UI dedicada ainda)
-- [ ] Criar/listar/excluir tabela via formulário (colunas, tipos, PK, not null, default) — idem, só via SQL por ora
-- [x] ~~Editor SQL básico (rodar query, ver resultado em grid, sem autocomplete ainda)~~
+- [ ] Criar/listar/excluir tabela via formulário (criar: ok via formulário; excluir tabela ainda só via editor SQL)
+- [x] ~~Editor SQL básico (rodar query, ver resultado em grid, sem autocomplete ainda)~~ — ganhou syntax highlighting (CodeMirror) e histórico de queries também, além do MVP original
 - [x] ~~Ver dados da tabela em grid com paginação~~
 
 ### Extensões
-- [ ] Listar `pg_available_extensions`
-- [ ] Habilitar/desabilitar: `pg_stat_statements`, `uuid-ossp`, `pgcrypto`, `pg_trgm`
+- [x] ~~Listar `pg_available_extensions`~~
+- [x] ~~Habilitar/desabilitar: `pg_stat_statements`, `uuid-ossp`, `pgcrypto`, `pg_trgm`~~ (e qualquer outra da lista, não só essas 4)
 
 ### Monitoramento
 - [x] ~~`pg_stat_activity` ao vivo (sessões, query atual, estado), botão cancelar/terminar sessão~~
-- [ ] Dashboard com gráfico de conexões ao longo do tempo
+- [x] ~~Dashboard com gráfico de conexões ao longo do tempo~~ (+ gráfico de CPU/memória — histórico em memória, reseta se o backend reiniciar)
 - [ ] Top queries lentas via `pg_stat_statements`
 - [ ] CPU/RAM/disco por container (docker stats) (falta disco — CPU/RAM ok)
 
 ### Logs
 - [x] ~~Visualizador de log do Postgres (tail básico, sem parsing estruturado ainda)~~
 
-Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — 4 abas: Monitoramento, Logs, Editor SQL, Tabelas. Backend conecta direto no Postgres gerenciado pela rede `gestpg-managed` (nome do container, não host_port). Verificado ponta a ponta no mesmo droplet: criou tabela e linhas pelo editor SQL, viu na aba Tabelas, sessão apareceu no Monitoramento. Ver commit `53505d6`.
+Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — abas: Monitoramento, Logs, Editor SQL, Tabelas, Extensões, Configuração, Usuários. Backend conecta direto no Postgres gerenciado pela rede `gestpg-managed` (nome do container, não host_port). Verificado ponta a ponta no mesmo droplet a cada feature. Ver commits `53505d6` até `f59e036`.
+
+**Além do MVP original**, também saiu nessa leva (pedido explícito do usuário, fora da lista original mas dentro do espírito "gerenciar o banco"):
+- Connection string com senha revelável (copiar pra conectar de fora — psql, DBeaver, etc)
+- Criar tabela via formulário visual (nome, colunas, tipos, PK, not null, default)
+- Gerenciar triggers por tabela (criar/habilitar/desabilitar/excluir)
+- Usuários/roles: criar/excluir role, flags (login/superuser/createdb/createrole), matriz de permissões (GRANT/REVOKE SELECT/INSERT/UPDATE/DELETE por tabela)
 
 ### Backup / Restore
 - [ ] Backup manual sob demanda (`pg_dump`, formato custom)
