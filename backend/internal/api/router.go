@@ -94,5 +94,11 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("GET /api/v1/servers/{id}/capacity-forecast", detail.CapacityForecast)
 	mux.HandleFunc("GET /api/v1/servers/{id}/tuning-suggestions", detail.SuggestTuning)
 
+	mux.HandleFunc("GET /api/v1/servers/{id}/retention-policies", detail.ListRetentionPolicies)
+	mux.HandleFunc("POST /api/v1/servers/{id}/retention-policies", detail.CreateRetentionPolicy)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/retention-policies/{policyId}", detail.DeleteRetentionPolicy)
+	mux.HandleFunc("POST /api/v1/servers/{id}/retention-policies/{policyId}/enabled", detail.SetRetentionPolicyEnabled)
+	mux.HandleFunc("POST /api/v1/servers/{id}/retention-policies/{policyId}/run", detail.RunRetentionPolicy)
+
 	return withCORS(withLogging(mux))
 }

@@ -17,6 +17,7 @@ import {
 import { Table2 } from "lucide-react";
 import { CreateTableDialog } from "../create-table-dialog";
 import { TableTriggers } from "../table-triggers";
+import { RetentionPolicies } from "../retention-policies";
 
 const PAGE_SIZE = 50;
 
@@ -149,6 +150,8 @@ export function TablesTab({ serverId, database }: { serverId: string; database: 
         </CardContent>
       </Card>
       </div>
+
+      <RetentionPolicies serverId={serverId} database={database} />
     </div>
   );
 }

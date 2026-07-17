@@ -288,6 +288,31 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export interface RetentionPolicy {
+  id: string;
+  server_id: string;
+  database_name: string;
+  schema_name: string;
+  table_name: string;
+  date_column: string;
+  max_age_days: number;
+  action: "archive" | "delete";
+  enabled: boolean;
+  last_run_at: string | null;
+  last_run_rows_affected: number | null;
+  last_run_error: string;
+  created_at: string;
+}
+
+export interface CreateRetentionPolicyInput {
+  database_name: string;
+  schema_name: string;
+  table_name: string;
+  date_column: string;
+  max_age_days: number;
+  action: "archive" | "delete";
+}
+
 export interface TuningSuggestion {
   param: string;
   current_value: string;
@@ -684,6 +709,29 @@ export const api = {
     request<CapacityForecast>(`/api/v1/servers/${id}/capacity-forecast`),
 
   tuningSuggestions: (id: string) => request<TuningSuggestion[]>(`/api/v1/servers/${id}/tuning-suggestions`),
+
+  listRetentionPolicies: (id: string) =>
+    request<RetentionPolicy[]>(`/api/v1/servers/${id}/retention-policies`),
+
+  createRetentionPolicy: (id: string, input: CreateRetentionPolicyInput) =>
+    request<RetentionPolicy>(`/api/v1/servers/${id}/retention-policies`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteRetentionPolicy: (id: string, policyId: string) =>
+    request<void>(`/api/v1/servers/${id}/retention-policies/${policyId}`, { method: "DELETE" }),
+
+  setRetentionPolicyEnabled: (id: string, policyId: string, enabled: boolean) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/retention-policies/${policyId}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
+  runRetentionPolicy: (id: string, policyId: string) =>
+    request<{ rows_affected: number }>(`/api/v1/servers/${id}/retention-policies/${policyId}/run`, {
+      method: "POST",
+    }),
 
   suggestIndexes: (id: string, database: string) =>
     request<IndexSuggestion[]>(`/api/v1/servers/${id}/indexes/suggestions?database=${encodeURIComponent(database)}`),

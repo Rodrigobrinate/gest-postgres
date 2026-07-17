@@ -67,6 +67,7 @@ func run() error {
 	)
 
 	go serverService.RunMetricsCollector(ctx, 15*time.Second)
+	go serverService.RunRetentionSweep(ctx, 1*time.Hour)
 
 	router := api.NewRouter(serverService)
 
