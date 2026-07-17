@@ -108,7 +108,7 @@ else
 		warn "não consegui detectar IP público — PUBLIC_API_URL ficou localhost:8080 (edita o .env se for acessar de fora)"
 	fi
 
-	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env
+	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env || true
 	ok ".env criado com senha do metadata-db e chave de criptografia geradas"
 fi
 
@@ -125,7 +125,7 @@ else
 		-e GOTOOLCHAIN=auto \
 		"golang:${GO_MOD_VERSION}" \
 		go mod tidy
-	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" backend/go.mod backend/go.sum
+	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" backend/go.mod backend/go.sum || true
 	ok "backend/go.sum gerado"
 fi
 
@@ -148,4 +148,4 @@ ok "setup concluído"
 echo "  frontend: http://localhost:3000"
 echo "  backend:  http://localhost:8080/api/v1/healthz"
 echo "  logs:     docker compose logs -f"
-[[ "$REAL_USER" != "root" ]] && echo -e "${c_yellow}!${c_reset} deslogue/logue de novo pra usar 'docker' sem sudo"
+[[ "$REAL_USER" != "root" ]] && echo -e "${c_yellow}!${c_reset} deslogue/logue de novo pra usar 'docker' sem sudo" || true
