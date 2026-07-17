@@ -49,23 +49,25 @@ Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → 
 - [ ] `pg_hba.conf` básico: tabela simples de regras (tipo, database, user, CIDR, método), sem drag-and-drop ainda
 
 ### Banco de dados / objetos (mínimo pra ser usável)
-- [ ] Criar/listar/excluir database
-- [ ] Criar/listar/excluir tabela via formulário (colunas, tipos, PK, not null, default)
-- [ ] Editor SQL básico (rodar query, ver resultado em grid, sem autocomplete ainda)
-- [ ] Ver dados da tabela em grid com paginação
+- [ ] Criar/listar/excluir database (dá pra fazer via editor SQL, mas sem UI dedicada ainda)
+- [ ] Criar/listar/excluir tabela via formulário (colunas, tipos, PK, not null, default) — idem, só via SQL por ora
+- [x] ~~Editor SQL básico (rodar query, ver resultado em grid, sem autocomplete ainda)~~
+- [x] ~~Ver dados da tabela em grid com paginação~~
 
 ### Extensões
 - [ ] Listar `pg_available_extensions`
 - [ ] Habilitar/desabilitar: `pg_stat_statements`, `uuid-ossp`, `pgcrypto`, `pg_trgm`
 
 ### Monitoramento
-- [ ] `pg_stat_activity` ao vivo (sessões, query atual, estado), botão cancelar/terminar sessão
+- [x] ~~`pg_stat_activity` ao vivo (sessões, query atual, estado), botão cancelar/terminar sessão~~
 - [ ] Dashboard com gráfico de conexões ao longo do tempo
 - [ ] Top queries lentas via `pg_stat_statements`
-- [ ] CPU/RAM/disco por container (docker stats)
+- [ ] CPU/RAM/disco por container (docker stats) (falta disco — CPU/RAM ok)
 
 ### Logs
-- [ ] Visualizador de log do Postgres (tail básico, sem parsing estruturado ainda)
+- [x] ~~Visualizador de log do Postgres (tail básico, sem parsing estruturado ainda)~~
+
+Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — 4 abas: Monitoramento, Logs, Editor SQL, Tabelas. Backend conecta direto no Postgres gerenciado pela rede `gestpg-managed` (nome do container, não host_port). Verificado ponta a ponta no mesmo droplet: criou tabela e linhas pelo editor SQL, viu na aba Tabelas, sessão apareceu no Monitoramento. Ver commit `53505d6`.
 
 ### Backup / Restore
 - [ ] Backup manual sob demanda (`pg_dump`, formato custom)
