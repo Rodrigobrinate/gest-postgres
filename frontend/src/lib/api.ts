@@ -122,6 +122,36 @@ export interface CreateTableInput {
   columns: ColumnDef[];
 }
 
+export interface RoleInfo {
+  name: string;
+  can_login: boolean;
+  superuser: boolean;
+  create_db: boolean;
+  create_role: boolean;
+  connection_limit: number;
+}
+
+export interface CreateRoleInput {
+  name: string;
+  password: string;
+  can_login: boolean;
+  superuser: boolean;
+  create_db: boolean;
+  create_role: boolean;
+  connection_limit: number;
+}
+
+export interface TablePrivileges {
+  schema: string;
+  table: string;
+  select: boolean;
+  insert: boolean;
+  update: boolean;
+  delete: boolean;
+}
+
+export type Privilege = "select" | "insert" | "update" | "delete";
+
 export interface DatabaseSize {
   name: string;
   size_bytes: number;
@@ -227,6 +257,36 @@ export const api = {
     }),
 
   getPassword: (id: string) => request<{ password: string }>(`/api/v1/servers/${id}/password`),
+
+  listRoles: (id: string) => request<RoleInfo[]>(`/api/v1/servers/${id}/roles`),
+
+  createRole: (id: string, input: CreateRoleInput) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/roles`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  dropRole: (id: string, name: string) =>
+    request<void>(`/api/v1/servers/${id}/roles/${encodeURIComponent(name)}`, { method: "DELETE" }),
+
+  rolePrivileges: (id: string, name: string, database: string) =>
+    request<TablePrivileges[]>(
+      `/api/v1/servers/${id}/roles/${encodeURIComponent(name)}/privileges?database=${encodeURIComponent(database)}`
+    ),
+
+  setPrivilege: (
+    id: string,
+    name: string,
+    database: string,
+    schema: string,
+    table: string,
+    privilege: Privilege,
+    grant: boolean
+  ) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/roles/${encodeURIComponent(name)}/privileges/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/${privilege.toUpperCase()}/${grant ? "grant" : "revoke"}?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
 
   listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
 

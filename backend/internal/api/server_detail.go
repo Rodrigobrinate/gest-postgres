@@ -19,6 +19,79 @@ func NewDetailHandler(service *server.Service) *DetailHandler {
 	return &DetailHandler{service: service}
 }
 
+func (h *DetailHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	roles, err := h.service.ListRoles(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, roles)
+}
+
+func (h *DetailHandler) CreateRole(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var in server.CreateRoleInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+
+	if err := h.service.CreateRole(r.Context(), id, in); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+}
+
+func (h *DetailHandler) DropRole(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+
+	if err := h.service.DropRole(r.Context(), id, name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *DetailHandler) RolePrivileges(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+	database := r.URL.Query().Get("database")
+
+	privs, err := h.service.ListRolePrivileges(r.Context(), id, database, name)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, privs)
+}
+
+func (h *DetailHandler) GrantPrivilege(w http.ResponseWriter, r *http.Request) {
+	h.setPrivilege(w, r, true)
+}
+
+func (h *DetailHandler) RevokePrivilege(w http.ResponseWriter, r *http.Request) {
+	h.setPrivilege(w, r, false)
+}
+
+func (h *DetailHandler) setPrivilege(w http.ResponseWriter, r *http.Request, grant bool) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+	privilege := r.PathValue("privilege")
+	database := r.URL.Query().Get("database")
+
+	if err := h.service.SetTablePrivilege(r.Context(), id, database, schema, table, name, privilege, grant); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *DetailHandler) ListTriggers(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")
