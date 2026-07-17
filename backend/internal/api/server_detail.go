@@ -19,6 +19,54 @@ func NewDetailHandler(service *server.Service) *DetailHandler {
 	return &DetailHandler{service: service}
 }
 
+func (h *DetailHandler) Extensions(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	extensions, err := h.service.ListExtensions(r.Context(), id, database)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, extensions)
+}
+
+func (h *DetailHandler) EnableExtension(w http.ResponseWriter, r *http.Request) {
+	h.toggleExtension(w, r, true)
+}
+
+func (h *DetailHandler) DisableExtension(w http.ResponseWriter, r *http.Request) {
+	h.toggleExtension(w, r, false)
+}
+
+func (h *DetailHandler) toggleExtension(w http.ResponseWriter, r *http.Request, enable bool) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+	database := r.URL.Query().Get("database")
+
+	var err error
+	if enable {
+		err = h.service.EnableExtension(r.Context(), id, database, name)
+	} else {
+		err = h.service.DisableExtension(r.Context(), id, database, name)
+	}
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *DetailHandler) Password(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	password, err := h.service.Password(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"password": password})
+}
+
 func (h *DetailHandler) Databases(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	names, err := h.service.ListDatabases(r.Context(), id)

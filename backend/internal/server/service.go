@@ -312,6 +312,18 @@ func (s *Service) Delete(ctx context.Context, id string, keepVolume bool) error 
 	return s.repo.Delete(ctx, id)
 }
 
+// Password decifra e devolve a senha em texto puro — hoje a plataforma não
+// tem login/RBAC (item ainda em aberto no MVP), então quem acessa a API já é
+// o admin; não faz sentido esconder a senha de quem já roda SQL arbitrário
+// pelo editor.
+func (s *Service) Password(ctx context.Context, id string) (string, error) {
+	record, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return s.secretBox.Open(record.PasswordEncrypted)
+}
+
 // Logs retorna as últimas linhas de stdout+stderr do container — é onde a
 // imagem postgres oficial manda o log do Postgres por padrão (log_destination
 // = stderr, sem logging_collector). Não exige status running: útil também

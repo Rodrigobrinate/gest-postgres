@@ -97,6 +97,13 @@ export interface ContainerStats {
   memory_percent: number;
 }
 
+export interface Extension {
+  name: string;
+  default_version: string;
+  installed_version: string;
+  comment: string;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -150,6 +157,8 @@ export const api = {
       method: "DELETE",
     }),
 
+  getPassword: (id: string) => request<{ password: string }>(`/api/v1/servers/${id}/password`),
+
   listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
 
   listTables: (id: string, database: string) =>
@@ -196,6 +205,21 @@ export const api = {
     request<{ logs: string }>(`/api/v1/servers/${id}/logs?tail=${tail}`),
 
   stats: (id: string) => request<ContainerStats>(`/api/v1/servers/${id}/stats`),
+
+  listExtensions: (id: string, database: string) =>
+    request<Extension[]>(`/api/v1/servers/${id}/extensions?database=${encodeURIComponent(database)}`),
+
+  enableExtension: (id: string, database: string, name: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/extensions/${encodeURIComponent(name)}/enable?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
+
+  disableExtension: (id: string, database: string, name: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/extensions/${encodeURIComponent(name)}/disable?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
 };
 
 export { ApiError };

@@ -18,6 +18,8 @@ import { MonitoringTab } from "./tabs/monitoring-tab";
 import { LogsTab } from "./tabs/logs-tab";
 import { SqlEditorTab } from "./tabs/sql-editor-tab";
 import { TablesTab } from "./tabs/tables-tab";
+import { ExtensionsTab } from "./tabs/extensions-tab";
+import { ConnectionStringDialog } from "./connection-string-dialog";
 
 export function ServerDetailView({ id }: { id: string }) {
   const { data: server, isLoading } = useQuery({
@@ -72,23 +74,26 @@ export function ServerDetailView({ id }: { id: string }) {
           </div>
         </div>
 
-        {databases && databases.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">Banco:</span>
-            <Select value={activeDatabase} onValueChange={(v) => v && setDatabase(v)}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {databases.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {databases && databases.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-sm">Banco:</span>
+              <Select value={activeDatabase} onValueChange={(v) => v && setDatabase(v)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {databases.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <ConnectionStringDialog server={server} />
+        </div>
       </header>
 
       {notRunning ? (
@@ -103,6 +108,7 @@ export function ServerDetailView({ id }: { id: string }) {
             <TabsTrigger value="logs">Logs</TabsTrigger>
             <TabsTrigger value="sql">Editor SQL</TabsTrigger>
             <TabsTrigger value="tables">Tabelas</TabsTrigger>
+            <TabsTrigger value="extensions">Extensões</TabsTrigger>
           </TabsList>
 
           <TabsContent value="monitoring" className="pt-4">
@@ -116,6 +122,9 @@ export function ServerDetailView({ id }: { id: string }) {
           </TabsContent>
           <TabsContent value="tables" className="pt-4">
             <TablesTab serverId={id} database={activeDatabase} />
+          </TabsContent>
+          <TabsContent value="extensions" className="pt-4">
+            <ExtensionsTab serverId={id} database={activeDatabase} />
           </TabsContent>
         </Tabs>
       )}

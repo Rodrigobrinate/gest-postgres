@@ -141,7 +141,11 @@ func runAndCollect(ctx context.Context, conn *pgx.Conn, sql string) (*QueryResul
 
 	rows, err := conn.Query(ctx, sql)
 	if err != nil {
-		return nil, fmt.Errorf("executando query: %w", err)
+		// Erro de sintaxe, tabela inexistente, permissão negada etc — é o
+		// usuário que escreveu a query errada, não um bug da plataforma. Marca
+		// como ErrValidation pra virar um 4xx com a mensagem real do Postgres em
+		// vez de sumir num "erro interno" genérico.
+		return nil, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
 	defer rows.Close()
 
@@ -164,7 +168,7 @@ func runAndCollect(ctx context.Context, conn *pgx.Conn, sql string) (*QueryResul
 		resultRows = append(resultRows, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrValidation, err)
 	}
 
 	return &QueryResult{
