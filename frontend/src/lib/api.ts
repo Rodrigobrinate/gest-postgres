@@ -122,6 +122,16 @@ export interface CreateTableInput {
   columns: ColumnDef[];
 }
 
+export interface SlowQuery {
+  query_id: number;
+  query: string;
+  calls: number;
+  total_exec_ms: number;
+  mean_exec_ms: number;
+  rows: number;
+  cache_hit_ratio: number;
+}
+
 export interface RoleInfo {
   name: string;
   can_login: boolean;
@@ -257,6 +267,20 @@ export const api = {
     }),
 
   getPassword: (id: string) => request<{ password: string }>(`/api/v1/servers/${id}/password`),
+
+  slowQueries: (id: string, database: string, orderBy: "total_time" | "mean_time" | "calls") =>
+    request<{ available: boolean; queries: SlowQuery[] }>(
+      `/api/v1/servers/${id}/slow-queries?database=${encodeURIComponent(database)}&order_by=${orderBy}`
+    ),
+
+  resetQueryStats: (id: string, database: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/slow-queries/reset?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
+
+  enableQueryStats: (id: string) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/query-stats/enable`, { method: "POST" }),
 
   listRoles: (id: string) => request<RoleInfo[]>(`/api/v1/servers/${id}/roles`),
 

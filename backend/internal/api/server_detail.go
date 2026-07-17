@@ -174,6 +174,46 @@ func (h *DetailHandler) DropTrigger(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *DetailHandler) SlowQueries(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	orderBy := r.URL.Query().Get("order_by")
+
+	queries, available, err := h.service.ListSlowQueries(r.Context(), id, database, orderBy)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if queries == nil {
+		queries = []server.SlowQuery{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"available": available,
+		"queries":   queries,
+	})
+}
+
+func (h *DetailHandler) ResetQueryStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	if err := h.service.ResetQueryStats(r.Context(), id, database); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *DetailHandler) EnableQueryStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	if err := h.service.EnableQueryStats(r.Context(), id); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *DetailHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

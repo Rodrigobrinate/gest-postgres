@@ -177,6 +177,16 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 		s.markError(ctx, serverID)
 		return
 	}
+
+	// pg_stat_statements só coleta estatística de verdade se estiver em
+	// shared_preload_libraries — só CREATE EXTENSION não basta (a extensão fica
+	// instalada mas sem dados). Aba de desempenho de queries depende disso, então
+	// já nasce habilitado por padrão em todo servidor novo.
+	if err := s.enableQueryStatsPreload(ctx, record); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
+
 	if err := s.docker.RestartContainer(ctx, containerID); err != nil {
 		s.markError(ctx, serverID)
 		return
@@ -186,6 +196,11 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 		return
 	}
 	if err := waitPostgresReady(ctx, record.ContainerName, record.Username, plainPassword, record.DatabaseName, 60*time.Second); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
+
+	if err := s.enableQueryStatsExtension(ctx, record); err != nil {
 		s.markError(ctx, serverID)
 		return
 	}
