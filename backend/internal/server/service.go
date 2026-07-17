@@ -292,6 +292,29 @@ func (s *Service) Delete(ctx context.Context, id string, keepVolume bool) error 
 	return s.repo.Delete(ctx, id)
 }
 
+// Logs retorna as últimas linhas de stdout+stderr do container — é onde a
+// imagem postgres oficial manda o log do Postgres por padrão (log_destination
+// = stderr, sem logging_collector). Não exige status running: útil também
+// pra ver por que um container morreu.
+func (s *Service) Logs(ctx context.Context, id string, tailLines int) (string, error) {
+	record, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if record.ContainerID == "" {
+		return "", nil
+	}
+	return s.docker.ContainerLogs(ctx, record.ContainerID, tailLines)
+}
+
+func (s *Service) Stats(ctx context.Context, id string) (docker.ContainerStatsSnapshot, error) {
+	record, err := s.getRunningServer(ctx, id)
+	if err != nil {
+		return docker.ContainerStatsSnapshot{}, err
+	}
+	return s.docker.ContainerStats(ctx, record.ContainerID)
+}
+
 func (s *Service) allocatePort(ctx context.Context) (int, error) {
 	maxUsed, err := s.repo.MaxHostPort(ctx)
 	if err != nil {

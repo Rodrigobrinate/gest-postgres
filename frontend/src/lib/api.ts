@@ -54,6 +54,49 @@ export interface CreateServerInput {
   database_name?: string;
 }
 
+export interface QueryResult {
+  columns: string[];
+  rows: unknown[][];
+  row_count: number;
+  command_tag?: string;
+  duration_ms: number;
+}
+
+export interface TableInfo {
+  schema: string;
+  name: string;
+  size_bytes: number;
+  estimated_rows: number;
+}
+
+export interface TableRowsResult {
+  columns: string[];
+  rows: unknown[][];
+  total_rows: number;
+  limit: number;
+  offset: number;
+  duration_ms: number;
+}
+
+export interface ActivitySession {
+  pid: number;
+  username: string;
+  database: string;
+  application_name: string;
+  client_addr: string;
+  state: string;
+  query: string;
+  query_start: string | null;
+  backend_start: string | null;
+}
+
+export interface ContainerStats {
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_limit_mb: number;
+  memory_percent: number;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -106,6 +149,53 @@ export const api = {
     request<void>(`/api/v1/servers/${id}?keep_volume=${keepVolume}`, {
       method: "DELETE",
     }),
+
+  listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
+
+  listTables: (id: string, database: string) =>
+    request<TableInfo[]>(`/api/v1/servers/${id}/tables?database=${encodeURIComponent(database)}`),
+
+  tableRows: (
+    id: string,
+    schema: string,
+    table: string,
+    opts: { database: string; limit?: number; offset?: number }
+  ) => {
+    const params = new URLSearchParams({
+      database: opts.database,
+      limit: String(opts.limit ?? 50),
+      offset: String(opts.offset ?? 0),
+    });
+    return request<TableRowsResult>(
+      `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/rows?${params}`
+    );
+  },
+
+  runQuery: (id: string, database: string, sql: string) =>
+    request<QueryResult>(`/api/v1/servers/${id}/query`, {
+      method: "POST",
+      body: JSON.stringify({ database, sql }),
+    }),
+
+  activity: (id: string, database: string) =>
+    request<ActivitySession[]>(
+      `/api/v1/servers/${id}/activity?database=${encodeURIComponent(database)}`
+    ),
+
+  cancelBackend: (id: string, pid: number) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/activity/${pid}/cancel`, {
+      method: "POST",
+    }),
+
+  terminateBackend: (id: string, pid: number) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/activity/${pid}/terminate`, {
+      method: "POST",
+    }),
+
+  logs: (id: string, tail = 500) =>
+    request<{ logs: string }>(`/api/v1/servers/${id}/logs?tail=${tail}`),
+
+  stats: (id: string) => request<ContainerStats>(`/api/v1/servers/${id}/stats`),
 };
 
 export { ApiError };

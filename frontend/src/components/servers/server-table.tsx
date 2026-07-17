@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import {
   Table,
@@ -65,7 +66,9 @@ export function ServerTable() {
         {data.map((server) => (
           <TableRow key={server.id}>
             <TableCell>
-              <div className="font-medium">{server.name}</div>
+              <Link href={`/servers/${server.id}`} className="hover:underline">
+                <div className="font-medium">{server.name}</div>
+              </Link>
               {server.description && (
                 <div className="text-muted-foreground text-xs">{server.description}</div>
               )}
