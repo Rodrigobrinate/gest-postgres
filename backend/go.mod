@@ -13,3 +13,9 @@ require (
 	github.com/docker/go-connections v0.5.0
 	github.com/jackc/pgx/v5 v5.5.5
 )
+
+// docker/distribution@v2.8.3's compat shim (reference_deprecated.go) chama
+// reference.SplitHostname, removida em distribution/reference v0.6.0. Sem isso
+// `go mod tidy` puxa a v0.6.0 como "latest" e o build quebra com
+// "undefined: reference.SplitHostname". v0.5.0 ainda tem a função.
+replace github.com/distribution/reference => github.com/distribution/reference v0.5.0
