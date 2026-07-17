@@ -33,12 +33,14 @@ Todo requisito do MVP abaixo é um checkbox. Ao implementar:
 ## Escopo MVP
 
 ### Servidores (ciclo de vida básico)
-- [ ] Criar servidor via Docker API: nome, versão do Postgres, usuário/senha, porta, preset de recursos (Pequeno/Médio/Grande)
-- [ ] Volume nomeado por instância + rede Docker isolada
-- [ ] Listar servidores com status (rodando/parado/erro), versão, conexões atuais
-- [ ] Start / Stop / Restart
+- [x] ~~Criar servidor via Docker API: nome, versão do Postgres, usuário/senha, porta, preset de recursos (Pequeno/Médio/Grande)~~
+- [x] ~~Volume nomeado por instância + rede Docker isolada~~
+- [ ] Listar servidores com status (rodando/parado/erro), versão (falta: conexões atuais — sem monitoramento ainda)
+- [x] ~~Start / Stop / Restart~~
 - [ ] Editar servidor (nome, recursos, porta)
-- [ ] Excluir servidor (confirmação, opção manter/apagar volume)
+- [x] ~~Excluir servidor (confirmação, opção manter/apagar volume)~~
+
+Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → `sudo ./setup.sh` → criar/start/stop/restart/excluir servidor pela UI, Postgres realmente aceitando conexão). Ver histórico de commits a partir de `f5a557d` até `ee97d0e`.
 
 ### Configuração do Postgres (subset essencial, não tudo de REQUISITOS.md §4)
 - [ ] Form com os parâmetros mais impactantes: `max_connections`, `shared_buffers`, `work_mem`, `maintenance_work_mem`, `effective_cache_size`, `log_min_duration_statement`
