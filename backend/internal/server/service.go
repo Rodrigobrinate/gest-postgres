@@ -27,6 +27,7 @@ type Service struct {
 	repo      *Repo
 	docker    *docker.Client
 	secretBox *crypto.SecretBox
+	history   *HistoryCollector
 
 	networkName    string
 	portRangeStart int
@@ -38,6 +39,7 @@ func NewService(repo *Repo, dockerClient *docker.Client, secretBox *crypto.Secre
 		repo:           repo,
 		docker:         dockerClient,
 		secretBox:      secretBox,
+		history:        NewHistoryCollector(240), // ~1h a 15s/amostra
 		networkName:    networkName,
 		portRangeStart: portRangeStart,
 		portRangeEnd:   portRangeEnd,
@@ -331,6 +333,7 @@ func (s *Service) Delete(ctx context.Context, id string, keepVolume bool) error 
 			return err
 		}
 	}
+	s.history.forget(id)
 	return s.repo.Delete(ctx, id)
 }
 

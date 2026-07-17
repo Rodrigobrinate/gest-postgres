@@ -189,6 +189,21 @@ func (h *DetailHandler) Databases(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, names)
 }
 
+func (h *DetailHandler) DatabaseSizes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sizes, err := h.service.DatabaseSizes(r.Context(), id)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, sizes)
+}
+
+func (h *DetailHandler) MetricsHistory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	httpx.WriteJSON(w, http.StatusOK, h.service.GetMetricsHistory(id))
+}
+
 func (h *DetailHandler) Tables(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

@@ -66,6 +66,8 @@ func run() error {
 		cfg.ManagedPortRangeEnd,
 	)
 
+	go serverService.RunMetricsCollector(ctx, 15*time.Second)
+
 	router := api.NewRouter(serverService)
 
 	httpServer := &http.Server{

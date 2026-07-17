@@ -13,7 +13,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Square, XCircle } from "lucide-react";
+import { Square, XCircle, Database } from "lucide-react";
+import { MetricChart } from "../metric-chart";
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+}
 
 export function MonitoringTab({ serverId, database }: { serverId: string; database: string }) {
   const { data: stats } = useQuery({
@@ -25,6 +31,17 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
     queryKey: ["servers", serverId, "activity", database],
     queryFn: () => api.activity(serverId, database),
     enabled: !!database,
+  });
+
+  const { data: history } = useQuery({
+    queryKey: ["servers", serverId, "metrics-history"],
+    queryFn: () => api.metricsHistory(serverId),
+    refetchInterval: 15_000,
+  });
+
+  const { data: dbSizes } = useQuery({
+    queryKey: ["servers", serverId, "database-sizes"],
+    queryFn: () => api.databaseSizes(serverId),
   });
 
   const queryClient = useQueryClient();
@@ -64,6 +81,53 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
         />
         <StatCard label="Sessões ativas" value={sessions ? String(sessions.length) : "—"} />
       </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <MetricChart
+          title="CPU"
+          data={history ?? []}
+          dataKey="cpu_percent"
+          color="#2563eb"
+          unit="%"
+        />
+        <MetricChart
+          title="Memória"
+          data={history ?? []}
+          dataKey="memory_used_mb"
+          color="#7c3aed"
+          formatValue={(v) => `${v.toFixed(0)} MB`}
+        />
+        <MetricChart
+          title="Conexões"
+          data={history ?? []}
+          dataKey="connection_count"
+          color="#0891b2"
+          formatValue={(v) => String(Math.round(v))}
+        />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Bancos de dados</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {!dbSizes || dbSizes.length === 0 ? (
+            <p className="text-muted-foreground p-6 text-sm">Carregando...</p>
+          ) : (
+            <ul className="divide-y">
+              {dbSizes.map((d) => (
+                <li key={d.name} className="flex items-center justify-between px-4 py-2 text-sm">
+                  <span className="flex items-center gap-2 font-mono">
+                    <Database className="text-muted-foreground size-3.5" />
+                    {d.name}
+                  </span>
+                  <span className="text-muted-foreground">{formatBytes(d.size_bytes)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

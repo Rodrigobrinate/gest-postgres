@@ -69,6 +69,44 @@ func (s *Service) ListDatabases(ctx context.Context, id string) ([]string, error
 	return names, rows.Err()
 }
 
+type DatabaseSize struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
+func (s *Service) DatabaseSizes(ctx context.Context, id string) ([]DatabaseSize, error) {
+	record, err := s.getRunningServer(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := s.connectTo(ctx, record, "")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(ctx)
+
+	rows, err := conn.Query(ctx, `
+		SELECT datname, pg_database_size(datname)
+		FROM pg_database
+		WHERE datistemplate = false
+		ORDER BY pg_database_size(datname) DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("lendo tamanho dos bancos: %w", err)
+	}
+	defer rows.Close()
+
+	sizes := make([]DatabaseSize, 0)
+	for rows.Next() {
+		var d DatabaseSize
+		if err := rows.Scan(&d.Name, &d.SizeBytes); err != nil {
+			return nil, fmt.Errorf("lendo tamanho: %w", err)
+		}
+		sizes = append(sizes, d)
+	}
+	return sizes, rows.Err()
+}
+
 func (s *Service) ListTables(ctx context.Context, id, database string) ([]TableInfo, error) {
 	record, err := s.getRunningServer(ctx, id)
 	if err != nil {

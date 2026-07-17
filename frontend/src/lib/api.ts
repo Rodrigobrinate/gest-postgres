@@ -122,6 +122,18 @@ export interface CreateTableInput {
   columns: ColumnDef[];
 }
 
+export interface DatabaseSize {
+  name: string;
+  size_bytes: number;
+}
+
+export interface MetricPoint {
+  timestamp: string;
+  cpu_percent: number;
+  memory_used_mb: number;
+  connection_count: number;
+}
+
 export interface TriggerInfo {
   name: string;
   schema: string;
@@ -217,6 +229,10 @@ export const api = {
   getPassword: (id: string) => request<{ password: string }>(`/api/v1/servers/${id}/password`),
 
   listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
+
+  databaseSizes: (id: string) => request<DatabaseSize[]>(`/api/v1/servers/${id}/database-sizes`),
+
+  metricsHistory: (id: string) => request<MetricPoint[]>(`/api/v1/servers/${id}/metrics-history`),
 
   listTables: (id: string, database: string) =>
     request<TableInfo[]>(`/api/v1/servers/${id}/tables?database=${encodeURIComponent(database)}`),
