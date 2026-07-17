@@ -108,6 +108,40 @@ export interface LiveConfig extends PostgresConfig {
   restart_pending: boolean;
 }
 
+export interface ColumnDef {
+  name: string;
+  type: string;
+  not_null: boolean;
+  primary_key: boolean;
+  default: string;
+}
+
+export interface CreateTableInput {
+  schema: string;
+  name: string;
+  columns: ColumnDef[];
+}
+
+export const COLUMN_TYPES = [
+  "text",
+  "varchar",
+  "integer",
+  "bigint",
+  "smallint",
+  "serial",
+  "bigserial",
+  "boolean",
+  "timestamp",
+  "timestamptz",
+  "date",
+  "numeric",
+  "real",
+  "double precision",
+  "uuid",
+  "jsonb",
+  "json",
+] as const;
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -167,6 +201,12 @@ export const api = {
 
   listTables: (id: string, database: string) =>
     request<TableInfo[]>(`/api/v1/servers/${id}/tables?database=${encodeURIComponent(database)}`),
+
+  createTable: (id: string, database: string, input: CreateTableInput) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/tables?database=${encodeURIComponent(database)}`,
+      { method: "POST", body: JSON.stringify(input) }
+    ),
 
   tableRows: (
     id: string,

@@ -122,6 +122,23 @@ func (h *DetailHandler) Tables(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, tables)
 }
 
+func (h *DetailHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	var in server.CreateTableInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+
+	if err := h.service.CreateTable(r.Context(), id, database, in); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+}
+
 func (h *DetailHandler) TableRows(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

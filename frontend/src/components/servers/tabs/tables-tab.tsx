@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Table2 } from "lucide-react";
+import { CreateTableDialog } from "../create-table-dialog";
 
 const PAGE_SIZE = 50;
 
@@ -45,7 +46,11 @@ export function TablesTab({ serverId, database }: { serverId: string; database: 
   }
 
   return (
-    <div className="grid grid-cols-[240px_1fr] gap-4">
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <CreateTableDialog serverId={serverId} database={database} />
+      </div>
+      <div className="grid grid-cols-[240px_1fr] gap-4">
       <Card className="h-fit">
         <CardContent className="p-0">
           {isLoading ? (
@@ -136,6 +141,7 @@ export function TablesTab({ serverId, database }: { serverId: string; database: 
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

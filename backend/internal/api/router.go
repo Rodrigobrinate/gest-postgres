@@ -27,6 +27,7 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("GET /api/v1/servers/{id}/password", detail.Password)
 	mux.HandleFunc("GET /api/v1/servers/{id}/databases", detail.Databases)
 	mux.HandleFunc("GET /api/v1/servers/{id}/tables", detail.Tables)
+	mux.HandleFunc("POST /api/v1/servers/{id}/tables", detail.CreateTable)
 	mux.HandleFunc("GET /api/v1/servers/{id}/tables/{schema}/{table}/rows", detail.TableRows)
 	mux.HandleFunc("POST /api/v1/servers/{id}/query", detail.Query)
 	mux.HandleFunc("GET /api/v1/servers/{id}/activity", detail.Activity)
