@@ -1,84 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, ApiError, type PostgresConfig } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { api, ApiError } from "@/lib/api";
+import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle } from "lucide-react";
-
-const FIELDS: {
-  key: keyof PostgresConfig;
-  label: string;
-  hint: string;
-  unit: string;
-  needsRestart?: boolean;
-}[] = [
-  {
-    key: "max_connections",
-    label: "Conexões máximas",
-    hint: "Quantas conexões simultâneas o servidor aceita.",
-    unit: "",
-    needsRestart: true,
-  },
-  {
-    key: "shared_buffers_mb",
-    label: "Shared buffers",
-    hint: "Memória reservada pro cache interno do Postgres. Regra de bolso: ~25% da RAM do servidor.",
-    unit: "MB",
-    needsRestart: true,
-  },
-  {
-    key: "work_mem_mb",
-    label: "Work mem",
-    hint: "Memória por operação de ordenação/hash. Multiplicado por conexões concorrentes — cuidado pra não estourar RAM.",
-    unit: "MB",
-  },
-  {
-    key: "maintenance_work_mem_mb",
-    label: "Maintenance work mem",
-    hint: "Memória usada por VACUUM, CREATE INDEX, etc.",
-    unit: "MB",
-  },
-  {
-    key: "effective_cache_size_mb",
-    label: "Effective cache size",
-    hint: "Estimativa de quanto o SO consegue cachear em disco — ajuda o planner a escolher os planos certos.",
-    unit: "MB",
-  },
-  {
-    key: "log_min_duration_statement_ms",
-    label: "Log de queries lentas",
-    hint: "Loga queries que demorarem mais que isso. -1 desliga.",
-    unit: "ms",
-  },
-];
+import { AlertTriangle, Search } from "lucide-react";
 
 export function ConfigTab({ serverId, database }: { serverId: string; database: string }) {
-  const { data: liveConfig, isLoading } = useQuery({
+  const { data: params, isLoading } = useQuery({
     queryKey: ["servers", serverId, "config", database],
     queryFn: () => api.getConfig(serverId, database),
     enabled: !!database,
   });
 
-  // Estado local só existe pra guardar edições do usuário — enquanto ele não
-  // mexe em nada, os campos mostram direto o que veio do fetch (sem efeito
-  // pra "copiar" dado de query pra state, que é anti-padrão no React).
-  const [edits, setEdits] = useState<PostgresConfig | null>(null);
-  const form: PostgresConfig | null = edits ?? (liveConfig ? stripRestartPending(liveConfig) : null);
+  const [filter, setFilter] = useState("");
+  const [edits, setEdits] = useState<Record<string, string>>({});
 
   const queryClient = useQueryClient();
   const save = useMutation({
-    mutationFn: (cfg: PostgresConfig) => api.updateConfig(serverId, database, cfg),
+    mutationFn: () => api.updateConfig(serverId, database, edits),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["servers", serverId, "config"] });
-      setEdits(null);
+      setEdits({});
       if (result.restart_required) {
-        toast.warning("Config aplicada, mas alguns parâmetros só valem depois de reiniciar o servidor");
+        toast.warning("Config aplicada — alguns parâmetros só valem depois de reiniciar o servidor");
       } else {
         toast.success("Config aplicada");
       }
@@ -86,63 +36,94 @@ export function ConfigTab({ serverId, database }: { serverId: string; database: 
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao aplicar config"),
   });
 
-  if (isLoading || !form) {
+  const grouped = useMemo(() => {
+    if (!params) return [];
+    const q = filter.trim().toLowerCase();
+    const filtered = q
+      ? params.filter(
+          (p) =>
+            p.label.toLowerCase().includes(q) ||
+            p.name.toLowerCase().includes(q) ||
+            p.hint.toLowerCase().includes(q)
+        )
+      : params;
+
+    const byCategory = new Map<string, typeof filtered>();
+    for (const p of filtered) {
+      const list = byCategory.get(p.category) ?? [];
+      list.push(p);
+      byCategory.set(p.category, list);
+    }
+    return Array.from(byCategory.entries());
+  }, [params, filter]);
+
+  if (isLoading || !params) {
     return <p className="text-muted-foreground p-6 text-sm">Carregando...</p>;
   }
 
-  function setField(key: keyof PostgresConfig, value: number) {
-    setEdits({ ...form!, [key]: value });
-  }
+  const pendingRestart = params.some((p) => p.pending_restart);
+  const editCount = Object.keys(edits).length;
 
   return (
     <div className="flex flex-col gap-4">
-      {liveConfig?.restart_pending && (
+      {pendingRestart && (
         <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <AlertTriangle className="size-4 shrink-0" />
           Tem mudança pendente de restart pra valer de verdade.
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Configuração do PostgreSQL</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-5">
-          {FIELDS.map((field) => (
-            <div key={field.key} className="grid gap-1.5">
-              <Label htmlFor={field.key} className="flex items-center gap-1.5">
-                {field.label}
-                {field.needsRestart && (
-                  <Badge variant="outline" className="border-amber-200 bg-amber-100 text-amber-700">
-                    restart
-                  </Badge>
-                )}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id={field.key}
-                  type="number"
-                  value={form[field.key]}
-                  onChange={(e) => setField(field.key, Number(e.target.value))}
-                />
-                {field.unit && <span className="text-muted-foreground text-xs">{field.unit}</span>}
-              </div>
-              <p className="text-muted-foreground text-xs">{field.hint}</p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
-          {save.isPending ? "Aplicando..." : "Aplicar configuração"}
+      <div className="flex items-center justify-between gap-3">
+        <div className="relative max-w-sm flex-1">
+          <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+          <Input
+            placeholder="Buscar parâmetro... (ex: work_mem, timeout, log)"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+        <Button onClick={() => save.mutate()} disabled={save.isPending || editCount === 0}>
+          {save.isPending ? "Aplicando..." : editCount > 0 ? `Aplicar (${editCount})` : "Aplicar"}
         </Button>
       </div>
+
+      {grouped.length === 0 ? (
+        <p className="text-muted-foreground p-6 text-center text-sm">Nada encontrado.</p>
+      ) : (
+        grouped.map(([category, items]) => (
+          <Card key={category}>
+            <CardContent className="p-4">
+              <h3 className="mb-3 text-sm font-semibold">{category}</h3>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                {items.map((p) => (
+                  <div key={p.name} className="grid gap-1.5">
+                    <Label htmlFor={p.name} className="flex items-center gap-1.5 text-xs">
+                      {p.label}
+                      <span className="text-muted-foreground font-mono">({p.name})</span>
+                      {p.restart && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-200 bg-amber-100 text-[10px] text-amber-700"
+                        >
+                          restart
+                        </Badge>
+                      )}
+                    </Label>
+                    <Input
+                      id={p.name}
+                      value={edits[p.name] ?? p.value}
+                      onChange={(e) => setEdits((cur) => ({ ...cur, [p.name]: e.target.value }))}
+                      className="h-8 font-mono text-xs"
+                    />
+                    <p className="text-muted-foreground text-xs">{p.hint}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))
+      )}
     </div>
   );
-}
-
-function stripRestartPending(cfg: PostgresConfig & { restart_pending?: boolean }): PostgresConfig {
-  const { restart_pending: _restartPending, ...rest } = cfg;
-  return rest;
 }

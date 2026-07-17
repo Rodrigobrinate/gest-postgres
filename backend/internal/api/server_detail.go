@@ -214,29 +214,33 @@ func (h *DetailHandler) EnableQueryStats(w http.ResponseWriter, r *http.Request)
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *DetailHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+func (h *DetailHandler) GetExpandedConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")
 
-	cfg, err := h.service.GetLiveConfig(r.Context(), id, database)
+	params, err := h.service.GetExpandedConfig(r.Context(), id, database)
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, cfg)
+	httpx.WriteJSON(w, http.StatusOK, params)
 }
 
-func (h *DetailHandler) PutConfig(w http.ResponseWriter, r *http.Request) {
+type applyConfigInput struct {
+	Updates map[string]string `json:"updates"`
+}
+
+func (h *DetailHandler) PutExpandedConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")
 
-	var cfg server.PostgresConfig
-	if err := httpx.DecodeJSON(r, &cfg); err != nil {
+	var in applyConfigInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
 		return
 	}
 
-	restartRequired, err := h.service.ApplyConfig(r.Context(), id, database, cfg)
+	restartRequired, err := h.service.ApplyExpandedConfig(r.Context(), id, database, in.Updates)
 	if err != nil {
 		writeServiceError(w, err)
 		return

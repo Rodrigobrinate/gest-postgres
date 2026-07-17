@@ -104,8 +104,17 @@ export interface Extension {
   comment: string;
 }
 
-export interface LiveConfig extends PostgresConfig {
-  restart_pending: boolean;
+export interface GucParam {
+  name: string;
+  category: string;
+  label: string;
+  hint: string;
+  restart: boolean;
+}
+
+export interface LiveParam extends GucParam {
+  value: string;
+  pending_restart: boolean;
 }
 
 export interface ColumnDef {
@@ -403,12 +412,12 @@ export const api = {
     ),
 
   getConfig: (id: string, database: string) =>
-    request<LiveConfig>(`/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`),
+    request<LiveParam[]>(`/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`),
 
-  updateConfig: (id: string, database: string, cfg: PostgresConfig) =>
+  updateConfig: (id: string, database: string, updates: Record<string, string>) =>
     request<{ restart_required: boolean }>(
       `/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`,
-      { method: "PUT", body: JSON.stringify(cfg) }
+      { method: "PUT", body: JSON.stringify({ updates }) }
     ),
 
   listExtensions: (id: string, database: string) =>
