@@ -13,9 +13,10 @@ import (
 )
 
 // CreateContainerInput descreve um container Postgres gerenciado a ser criado.
-// Toda vez que o número de parâmetros configuráveis do postgresql.conf crescer
-// (ver REQUISITOS.md §4), eles entram como flags no comando de start (Cmd),
-// não como novos campos soltos aqui.
+// Sobe com a config default da imagem — o subset de postgresql.conf do MVP é
+// aplicado depois via ALTER SYSTEM (ver Service.applySettings), nunca por
+// flag `-c` no comando: `-c` tem prioridade maior que ALTER SYSTEM e ficaria
+// travado pra sempre, nem restart destravaria.
 type CreateContainerInput struct {
 	Name         string
 	Image        string // ex: "postgres:16"
@@ -28,10 +29,6 @@ type CreateContainerInput struct {
 	CPUCores     float64
 	MemoryMB     int
 	ServerID     string
-
-	// PostgresArgs vira argv extra do entrypoint do postgres, usado pro subset de
-	// postgresql.conf que o MVP já permite personalizar (max_connections, etc).
-	PostgresArgs []string
 }
 
 type ContainerInfo struct {
@@ -59,7 +56,6 @@ func (c *Client) CreateContainer(ctx context.Context, in CreateContainerInput) (
 			LabelManaged:  "true",
 			LabelServerID: in.ServerID,
 		},
-		Cmd: in.PostgresArgs,
 	}
 
 	hostConfig := &container.HostConfig{

@@ -19,6 +19,7 @@ import { LogsTab } from "./tabs/logs-tab";
 import { SqlEditorTab } from "./tabs/sql-editor-tab";
 import { TablesTab } from "./tabs/tables-tab";
 import { ExtensionsTab } from "./tabs/extensions-tab";
+import { ConfigTab } from "./tabs/config-tab";
 import { ConnectionStringDialog } from "./connection-string-dialog";
 
 export function ServerDetailView({ id }: { id: string }) {
@@ -109,6 +110,7 @@ export function ServerDetailView({ id }: { id: string }) {
             <TabsTrigger value="sql">Editor SQL</TabsTrigger>
             <TabsTrigger value="tables">Tabelas</TabsTrigger>
             <TabsTrigger value="extensions">Extensões</TabsTrigger>
+            <TabsTrigger value="config">Configuração</TabsTrigger>
           </TabsList>
 
           <TabsContent value="monitoring" className="pt-4">
@@ -125,6 +127,9 @@ export function ServerDetailView({ id }: { id: string }) {
           </TabsContent>
           <TabsContent value="extensions" className="pt-4">
             <ExtensionsTab serverId={id} database={activeDatabase} />
+          </TabsContent>
+          <TabsContent value="config" className="pt-4">
+            <ConfigTab serverId={id} database={activeDatabase} />
           </TabsContent>
         </Tabs>
       )}

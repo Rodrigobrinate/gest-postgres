@@ -19,6 +19,36 @@ func NewDetailHandler(service *server.Service) *DetailHandler {
 	return &DetailHandler{service: service}
 }
 
+func (h *DetailHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	cfg, err := h.service.GetLiveConfig(r.Context(), id, database)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, cfg)
+}
+
+func (h *DetailHandler) PutConfig(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	var cfg server.PostgresConfig
+	if err := httpx.DecodeJSON(r, &cfg); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+
+	restartRequired, err := h.service.ApplyConfig(r.Context(), id, database, cfg)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"restart_required": restartRequired})
+}
+
 func (h *DetailHandler) Extensions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

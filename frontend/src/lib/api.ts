@@ -104,6 +104,10 @@ export interface Extension {
   comment: string;
 }
 
+export interface LiveConfig extends PostgresConfig {
+  restart_pending: boolean;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -205,6 +209,15 @@ export const api = {
     request<{ logs: string }>(`/api/v1/servers/${id}/logs?tail=${tail}`),
 
   stats: (id: string) => request<ContainerStats>(`/api/v1/servers/${id}/stats`),
+
+  getConfig: (id: string, database: string) =>
+    request<LiveConfig>(`/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`),
+
+  updateConfig: (id: string, database: string, cfg: PostgresConfig) =>
+    request<{ restart_required: boolean }>(
+      `/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`,
+      { method: "PUT", body: JSON.stringify(cfg) }
+    ),
 
   listExtensions: (id: string, database: string) =>
     request<Extension[]>(`/api/v1/servers/${id}/extensions?database=${encodeURIComponent(database)}`),

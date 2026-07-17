@@ -144,7 +144,6 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 		CPUCores:     record.Resources.CPUCores,
 		MemoryMB:     record.Resources.MemoryMB,
 		ServerID:     serverID,
-		PostgresArgs: buildPostgresArgs(record.Config),
 	})
 	if err != nil {
 		s.markError(ctx, serverID)
@@ -161,6 +160,29 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 	// Container "running" só quer dizer que o processo subiu — no primeiro boot,
 	// initdb ainda roda por alguns segundos depois disso. Confirma que o Postgres
 	// já aceita conexão de verdade antes de marcar como pronto pro usuário.
+	if err := waitPostgresReady(ctx, record.ContainerName, record.Username, plainPassword, record.DatabaseName, 60*time.Second); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
+
+	// Config calculada pelo preset entra via ALTER SYSTEM (não `-c` no comando
+	// do container) — de propósito: `-c` na linha de comando tem prioridade
+	// MAIOR que ALTER SYSTEM e nunca mais poderia ser trocado depois, nem
+	// reiniciando o container (que sobe de novo com o mesmo `-c` fixo). Aplica
+	// e já reinicia uma vez aqui pra shared_buffers/max_connections (que só
+	// pegam valer com restart) já nascerem certos.
+	if _, err := s.applySettings(ctx, record, record.DatabaseName, record.Config); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
+	if err := s.docker.RestartContainer(ctx, containerID); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
+	if err := s.docker.WaitHealthy(ctx, containerID, 60*time.Second); err != nil {
+		s.markError(ctx, serverID)
+		return
+	}
 	if err := waitPostgresReady(ctx, record.ContainerName, record.Username, plainPassword, record.DatabaseName, 60*time.Second); err != nil {
 		s.markError(ctx, serverID)
 		return
@@ -362,17 +384,6 @@ func (s *Service) allocatePort(ctx context.Context) (int, error) {
 	return next, nil
 }
 
-func buildPostgresArgs(cfg PostgresConfig) []string {
-	args := []string{
-		"-c", fmt.Sprintf("max_connections=%d", cfg.MaxConnections),
-		"-c", fmt.Sprintf("shared_buffers=%dMB", cfg.SharedBuffersMB),
-		"-c", fmt.Sprintf("work_mem=%dMB", cfg.WorkMemMB),
-		"-c", fmt.Sprintf("maintenance_work_mem=%dMB", cfg.MaintenanceWorkMemMB),
-		"-c", fmt.Sprintf("effective_cache_size=%dMB", cfg.EffectiveCacheSizeMB),
-		"-c", fmt.Sprintf("log_min_duration_statement=%d", cfg.LogMinDurationStatementMs),
-	}
-	return args
-}
 
 func mapDockerStatus(dockerStatus string) Status {
 	switch dockerStatus {
