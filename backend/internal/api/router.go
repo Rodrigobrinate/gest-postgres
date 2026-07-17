@@ -58,5 +58,27 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("POST /api/v1/servers/{id}/extensions/{name}/enable", detail.EnableExtension)
 	mux.HandleFunc("POST /api/v1/servers/{id}/extensions/{name}/disable", detail.DisableExtension)
 
+	mux.HandleFunc("GET /api/v1/servers/{id}/views", detail.ListViews)
+	mux.HandleFunc("POST /api/v1/servers/{id}/views", detail.CreateView)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/views/{schema}/{name}", detail.DropView)
+
+	mux.HandleFunc("GET /api/v1/servers/{id}/materialized-views", detail.ListMaterializedViews)
+	mux.HandleFunc("POST /api/v1/servers/{id}/materialized-views", detail.CreateMaterializedView)
+	mux.HandleFunc("POST /api/v1/servers/{id}/materialized-views/{schema}/{name}/refresh", detail.RefreshMaterializedView)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/materialized-views/{schema}/{name}", detail.DropMaterializedView)
+
+	mux.HandleFunc("GET /api/v1/servers/{id}/sequences", detail.ListSequences)
+	mux.HandleFunc("POST /api/v1/servers/{id}/sequences", detail.CreateSequence)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/sequences/{schema}/{name}", detail.DropSequence)
+
+	mux.HandleFunc("GET /api/v1/servers/{id}/types", detail.ListTypes)
+	mux.HandleFunc("POST /api/v1/servers/{id}/types/enum", detail.CreateEnumType)
+	mux.HandleFunc("POST /api/v1/servers/{id}/types/domain", detail.CreateDomain)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/types/{schema}/{name}", detail.DropType)
+
+	mux.HandleFunc("GET /api/v1/servers/{id}/functions", detail.ListFunctions)
+	mux.HandleFunc("POST /api/v1/servers/{id}/functions", detail.CreateFunction)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/functions/{schema}/{name}", detail.DropFunction)
+
 	return withCORS(withLogging(mux))
 }

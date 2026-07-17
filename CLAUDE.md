@@ -50,6 +50,8 @@ Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → 
 
 Achado e corrigido um bug de arquitetura sério aqui: a config inicial entrava como flag `-c` no comando do container, que tem prioridade MAIOR que `ALTER SYSTEM` — nenhuma edição pós-criação nunca ia pegar, nem com restart. Agora tudo (inicial e edições) passa por `ALTER SYSTEM` + reload/restart, mesmo caminho.
 
+Configuração expandida bem além do subset original: ~86 parâmetros geridos, agrupados por categoria (memória, conexões, WAL, autovacuum, logging, etc.), com busca, indicação de quais precisam restart vs. reload, e edição só dos campos alterados. Fora do editável de propósito: `listen_addresses`/`port`/`unix_socket_directories`/certificados/`shared_preload_libraries`/`recovery_target_*`/`restore_command` e toggles de debug (`enable_*`) — mudar isso quebra ou exige orquestração que a plataforma ainda não faz.
+
 ### Banco de dados / objetos (mínimo pra ser usável)
 - [ ] Criar/listar/excluir database (dá pra fazer via editor SQL, mas sem UI dedicada ainda)
 - [ ] Criar/listar/excluir tabela via formulário (criar: ok via formulário; excluir tabela ainda só via editor SQL)
@@ -63,19 +65,26 @@ Achado e corrigido um bug de arquitetura sério aqui: a config inicial entrava c
 ### Monitoramento
 - [x] ~~`pg_stat_activity` ao vivo (sessões, query atual, estado), botão cancelar/terminar sessão~~
 - [x] ~~Dashboard com gráfico de conexões ao longo do tempo~~ (+ gráfico de CPU/memória — histórico em memória, reseta se o backend reiniciar)
-- [ ] Top queries lentas via `pg_stat_statements`
+- [x] ~~Top queries lentas via `pg_stat_statements`~~ (aba "Desempenho" — ordenação por tempo total/médio/chamadas, reset de stats, fluxo guiado de habilitação quando a extensão não tá coletando ainda)
 - [ ] CPU/RAM/disco por container (docker stats) (falta disco — CPU/RAM ok)
 
 ### Logs
 - [x] ~~Visualizador de log do Postgres (tail básico, sem parsing estruturado ainda)~~
 
-Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — abas: Monitoramento, Logs, Editor SQL, Tabelas, Extensões, Configuração, Usuários. Backend conecta direto no Postgres gerenciado pela rede `gestpg-managed` (nome do container, não host_port). Verificado ponta a ponta no mesmo droplet a cada feature. Ver commits `53505d6` até `f59e036`.
+Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — abas: Monitoramento, Logs, Editor SQL, Tabelas, Extensões, Configuração, Usuários, Desempenho, Objetos, Funções. Backend conecta direto no Postgres gerenciado pela rede `gestpg-managed` (nome do container, não host_port). Verificado ponta a ponta no mesmo droplet a cada feature.
 
 **Além do MVP original**, também saiu nessa leva (pedido explícito do usuário, fora da lista original mas dentro do espírito "gerenciar o banco"):
 - Connection string com senha revelável (copiar pra conectar de fora — psql, DBeaver, etc)
 - Criar tabela via formulário visual (nome, colunas, tipos, PK, not null, default)
 - Gerenciar triggers por tabela (criar/habilitar/desabilitar/excluir)
 - Usuários/roles: criar/excluir role, flags (login/superuser/createdb/createrole), matriz de permissões (GRANT/REVOKE SELECT/INSERT/UPDATE/DELETE por tabela)
+- Aba "Objetos": Views (criar/listar/excluir), Materialized Views (criar/listar/refresh/excluir), Sequences (criar/listar/excluir), Types/Domains (enum e domain com CHECK, criar/listar/excluir)
+- Aba "Funções": functions e procedures — listar (com definição expansível via `pg_get_functiondef`), criar via SQL cru num editor CodeMirror, excluir (suporta overload via assinatura completa)
+- Aba "Desempenho": queries lentas via `pg_stat_statements`, com auto-preload da extensão em `shared_preload_libraries` na criação de servidores novos (senão a extensão fica instalada mas não coleta nada) e fluxo guiado de habilitação pra servidores já existentes
+- Monitoramento ganhou: lista de databases com tamanho, gráfico de conexões, CPU e memória ao longo do tempo (histórico em memória via goroutine de coleta a cada 15s, reseta se o backend reiniciar)
+- Configuração expandida de ~6 pra ~86 parâmetros geridos (ver detalhe acima)
+
+Todos os itens acima testados via curl direto no droplet (criar/listar/refresh/excluir de cada tipo de objeto) e limpos depois. Ver histórico de commits recentes pro detalhe de cada leva.
 
 ### Backup / Restore
 - [ ] Backup manual sob demanda (`pg_dump`, formato custom)
@@ -94,19 +103,22 @@ Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — abas:
 
 Não implementar agora. Detalhe completo em REQUISITOS.md. Resumo do que fica pra depois:
 
-- Multi-storage de backup (Google Drive, S3, Dropbox, FTP), PITR/WAL archiving contínuo, criptografia de backup, teste automático de restore
+- Multi-storage de backup (Google Drive, S3, Dropbox, FTP), backup físico incremental com PITR real via pgBackRest/Barman (não só `pg_dump` lógico), criptografia de backup, teste automático de restore agendado (restaurar periodicamente pra validar que o backup presta)
 - Todos os ~150 parâmetros do `postgresql.conf` (hoje só o subset essencial), editor de arquivo puro, perfis de workload (OLTP/OLAP), `pg_ident.conf`
 - `pg_hba.conf` com drag-and-drop e simulador de regra
 - Particionamento, RLS/policies, event triggers, FDW, replicação lógica (publications/subscriptions), tipos customizados/domains, tablespaces
-- Índices: sugestão de faltantes/não usados, rebuild concorrente
-- EXPLAIN visual gráfico, autocomplete no editor SQL, queries salvas/compartilhadas
-- Monitoramento avançado: locks/deadlock graph, replicação (réplicas/lag/slots), vacuum progress, bloat, health score
-- Alertas configuráveis multi-canal (email/Slack/Discord/Telegram/webhook)
-- RBAC multi-usuário/times, 2FA, SSO, API keys, auditoria completa da plataforma
-- HA (Patroni), connection pooling gerenciado (PgBouncer/PgCat), read replicas via UI
+- Índices: sugestão de faltantes/não usados (baseado em `pg_stat_statements`), rebuild concorrente
+- EXPLAIN visual gráfico (plano de execução legível, não texto cru), autocomplete no editor SQL, queries salvas/compartilhadas
+- Monitoramento avançado: locks/deadlock graph, replicação (réplicas/lag/slots), vacuum progress, detecção de bloat (tabelas/índices inchados por vacuum atrasado, com sugestão de ação), alerta de wraparound (`age(datfrozenxid)`), health score, correlação de log com métricas (ver log do Postgres no mesmo lugar que o gráfico de CPU/conexões daquele horário), previsão de capacidade (tendência de crescimento de disco)
+- Tuning assistido de autovacuum e memória (sugerir `shared_buffers`/`work_mem`/etc. baseado no hardware real do container)
+- Alertas configuráveis multi-canal (email/Slack/Discord/Telegram/webhook): conexões perto do limite, réplica atrasando, disco enchendo, queries travadas, deadlocks
+- RBAC multi-usuário/times (granular por servidor: ver / editar / só monitorar), 2FA, SSO, API keys, auditoria completa da plataforma (quem mudou qual config, quando, com opção de reverter — pgAudit no lado do banco + log próprio da plataforma), rotação de credenciais/secrets (senha de superuser não deveria ficar estática pra sempre)
+- Certificados TLS geridos automaticamente (emissão e renovação) pras conexões Postgres
+- HA (Patroni) com failover automático (promoção de réplica se a primária cair), connection pooling gerenciado (PgBouncer/PgCat), read replicas via UI com roteamento assimétrico (escrita → primária, leitura → réplicas, não round-robin)
 - API REST pública documentada, CLI, Terraform provider, IaC export
 - Multi-tenancy (organizações)
-- Upgrade de versão maior via wizard (`pg_upgrade`), clonar servidor
+- Auto-descoberta de Postgres já existentes na máquina (não criados pelo sistema) — ao instalar, varrer a máquina local por instalações Postgres e containers de banco já rodando, sugerir cadastro, pedir senha de cada um se necessário. Sempre local — sem gestão remota por enquanto (possível "cloud" futuro que agregue múltiplas máquinas monitoradas fica pra depois)
+- Upgrade de versão maior via wizard (`pg_upgrade`), clonagem rápida de banco (copy-on-write, ambiente de teste idêntico à produção em segundos — tipo Neon), mascaramento de dados (anonimizar dados sensíveis ao clonar produção pra dev/staging), retenção e arquivamento (política automática de quando arquivar/deletar dados antigos)
 - Extensões avançadas com UI dedicada: `pg_cron` (job scheduler), `pgaudit`, `timescaledb`, `pg_partman`, `postgis`
 
 ## Notas pro Claude

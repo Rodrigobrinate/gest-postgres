@@ -22,6 +22,8 @@ import { ExtensionsTab } from "./tabs/extensions-tab";
 import { ConfigTab } from "./tabs/config-tab";
 import { UsersTab } from "./tabs/users-tab";
 import { PerformanceTab } from "./tabs/performance-tab";
+import { ObjectsTab } from "./tabs/objects-tab";
+import { FunctionsTab } from "./tabs/functions-tab";
 import { ConnectionStringDialog } from "./connection-string-dialog";
 
 export function ServerDetailView({ id }: { id: string }) {
@@ -115,6 +117,8 @@ export function ServerDetailView({ id }: { id: string }) {
             <TabsTrigger value="config">Configuração</TabsTrigger>
             <TabsTrigger value="users">Usuários</TabsTrigger>
             <TabsTrigger value="performance">Desempenho</TabsTrigger>
+            <TabsTrigger value="objects">Objetos</TabsTrigger>
+            <TabsTrigger value="functions">Funções</TabsTrigger>
           </TabsList>
 
           <TabsContent value="monitoring" className="pt-4">
@@ -140,6 +144,12 @@ export function ServerDetailView({ id }: { id: string }) {
           </TabsContent>
           <TabsContent value="performance" className="pt-4">
             <PerformanceTab serverId={id} database={activeDatabase} />
+          </TabsContent>
+          <TabsContent value="objects" className="pt-4">
+            <ObjectsTab serverId={id} database={activeDatabase} />
+          </TabsContent>
+          <TabsContent value="functions" className="pt-4">
+            <FunctionsTab serverId={id} database={activeDatabase} />
           </TabsContent>
         </Tabs>
       )}

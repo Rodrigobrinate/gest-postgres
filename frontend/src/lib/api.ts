@@ -131,6 +131,57 @@ export interface CreateTableInput {
   columns: ColumnDef[];
 }
 
+export interface ViewInfo {
+  schema: string;
+  name: string;
+  definition: string;
+}
+
+export interface MaterializedViewInfo {
+  schema: string;
+  name: string;
+  populated: boolean;
+  size_bytes: number;
+  definition: string;
+}
+
+export interface SequenceInfo {
+  schema: string;
+  name: string;
+  last_value: number | null;
+  increment: number;
+  min_value: number;
+  max_value: number;
+  cache_size: number;
+  cycle: boolean;
+}
+
+export interface CreateSequenceInput {
+  schema: string;
+  name: string;
+  increment: number;
+  start_with: number;
+  cycle: boolean;
+}
+
+export interface TypeInfo {
+  schema: string;
+  name: string;
+  kind: "enum" | "domain" | "composite";
+  detail: string;
+}
+
+export interface FunctionInfo {
+  schema: string;
+  name: string;
+  arguments: string;
+  return_type: string;
+  kind: "function" | "procedure";
+  language: string;
+  definition: string;
+  identity_args: string;
+}
+
 export interface SlowQuery {
   query_id: number;
   query: string;
@@ -433,6 +484,90 @@ export const api = {
     request<{ status: string }>(
       `/api/v1/servers/${id}/extensions/${encodeURIComponent(name)}/disable?database=${encodeURIComponent(database)}`,
       { method: "POST" }
+    ),
+
+  listViews: (id: string, database: string) =>
+    request<ViewInfo[]>(`/api/v1/servers/${id}/views?database=${encodeURIComponent(database)}`),
+  createView: (id: string, database: string, schema: string, name: string, query: string) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/views?database=${encodeURIComponent(database)}`, {
+      method: "POST",
+      body: JSON.stringify({ schema, name, query }),
+    }),
+  dropView: (id: string, database: string, schema: string, name: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/views/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
+
+  listMaterializedViews: (id: string, database: string) =>
+    request<MaterializedViewInfo[]>(
+      `/api/v1/servers/${id}/materialized-views?database=${encodeURIComponent(database)}`
+    ),
+  createMaterializedView: (id: string, database: string, schema: string, name: string, query: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/materialized-views?database=${encodeURIComponent(database)}`,
+      { method: "POST", body: JSON.stringify({ schema, name, query }) }
+    ),
+  refreshMaterializedView: (id: string, database: string, schema: string, name: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/materialized-views/${encodeURIComponent(schema)}/${encodeURIComponent(name)}/refresh?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
+  dropMaterializedView: (id: string, database: string, schema: string, name: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/materialized-views/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
+
+  listSequences: (id: string, database: string) =>
+    request<SequenceInfo[]>(`/api/v1/servers/${id}/sequences?database=${encodeURIComponent(database)}`),
+  createSequence: (id: string, database: string, input: CreateSequenceInput) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/sequences?database=${encodeURIComponent(database)}`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  dropSequence: (id: string, database: string, schema: string, name: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/sequences/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
+
+  listTypes: (id: string, database: string) =>
+    request<TypeInfo[]>(`/api/v1/servers/${id}/types?database=${encodeURIComponent(database)}`),
+  createEnumType: (id: string, database: string, schema: string, name: string, values: string[]) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/types/enum?database=${encodeURIComponent(database)}`, {
+      method: "POST",
+      body: JSON.stringify({ schema, name, values }),
+    }),
+  createDomain: (
+    id: string,
+    database: string,
+    schema: string,
+    name: string,
+    baseType: string,
+    checkExpr: string
+  ) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/types/domain?database=${encodeURIComponent(database)}`, {
+      method: "POST",
+      body: JSON.stringify({ schema, name, base_type: baseType, check_expr: checkExpr }),
+    }),
+  dropType: (id: string, database: string, schema: string, name: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/types/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
+
+  listFunctions: (id: string, database: string) =>
+    request<FunctionInfo[]>(`/api/v1/servers/${id}/functions?database=${encodeURIComponent(database)}`),
+  createFunction: (id: string, database: string, sql: string) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/functions?database=${encodeURIComponent(database)}`, {
+      method: "POST",
+      body: JSON.stringify({ sql }),
+    }),
+  dropFunction: (id: string, database: string, schema: string, name: string, identityArgs: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/functions/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}&identity_args=${encodeURIComponent(identityArgs)}`,
+      { method: "DELETE" }
     ),
 };
 
