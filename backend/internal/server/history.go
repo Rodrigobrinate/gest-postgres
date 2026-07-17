@@ -12,6 +12,7 @@ type MetricPoint struct {
 	CPUPercent      float64   `json:"cpu_percent"`
 	MemoryUsedMB    float64   `json:"memory_used_mb"`
 	ConnectionCount int       `json:"connection_count"`
+	DiskUsedMB      float64   `json:"disk_used_mb"`
 }
 
 // HistoryCollector guarda uma janela recente de métricas por servidor, só em
@@ -97,11 +98,17 @@ func (s *Service) collectMetricsOnce(ctx context.Context) {
 			connCount = -1
 		}
 
+		diskMB, err := s.sumDatabaseSizeMB(ctx, record)
+		if err != nil {
+			slog.Warn("coleta de métricas: falha lendo tamanho dos bancos", "server_id", record.ID, "error", err)
+		}
+
 		s.history.append(record.ID, MetricPoint{
 			Timestamp:       now,
 			CPUPercent:      stats.CPUPercent,
 			MemoryUsedMB:    stats.MemoryUsedMB,
 			ConnectionCount: connCount,
+			DiskUsedMB:      diskMB,
 		})
 	}
 }
@@ -116,4 +123,19 @@ func (s *Service) countConnections(ctx context.Context, record *Server) (int, er
 	var count int
 	err = conn.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend'`).Scan(&count)
 	return count, err
+}
+
+func (s *Service) sumDatabaseSizeMB(ctx context.Context, record *Server) (float64, error) {
+	conn, err := s.connectTo(ctx, record, "")
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close(ctx)
+
+	var bytes int64
+	err = conn.QueryRow(ctx, `SELECT COALESCE(sum(pg_database_size(datname)), 0) FROM pg_database WHERE datistemplate = false`).Scan(&bytes)
+	if err != nil {
+		return 0, err
+	}
+	return float64(bytes) / (1024 * 1024), nil
 }

@@ -232,6 +232,42 @@ export interface MetricPoint {
   cpu_percent: number;
   memory_used_mb: number;
   connection_count: number;
+  disk_used_mb: number;
+}
+
+export interface TableBloat {
+  schema: string;
+  table: string;
+  live_tuples: number;
+  dead_tuples: number;
+  dead_ratio: number;
+  last_autovacuum: string | null;
+  suggestion: string;
+}
+
+export interface WraparoundInfo {
+  database: string;
+  age: number;
+  status: "ok" | "warning" | "critical";
+}
+
+export interface HealthFactor {
+  name: string;
+  score: number;
+  detail: string;
+}
+
+export interface HealthScore {
+  score: number;
+  factors: HealthFactor[];
+}
+
+export interface CapacityForecast {
+  current_disk_mb: number;
+  disk_limit_mb: number;
+  trend_mb_per_day: number;
+  days_until_full: number | null;
+  sample_window: string;
 }
 
 export interface TriggerInfo {
@@ -569,6 +605,17 @@ export const api = {
       `/api/v1/servers/${id}/functions/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}&identity_args=${encodeURIComponent(identityArgs)}`,
       { method: "DELETE" }
     ),
+
+  listBloat: (id: string, database: string) =>
+    request<TableBloat[]>(`/api/v1/servers/${id}/bloat?database=${encodeURIComponent(database)}`),
+
+  wraparoundStatus: (id: string) => request<WraparoundInfo[]>(`/api/v1/servers/${id}/wraparound`),
+
+  healthScore: (id: string, database: string) =>
+    request<HealthScore>(`/api/v1/servers/${id}/health-score?database=${encodeURIComponent(database)}`),
+
+  capacityForecast: (id: string) =>
+    request<CapacityForecast>(`/api/v1/servers/${id}/capacity-forecast`),
 };
 
 export { ApiError };

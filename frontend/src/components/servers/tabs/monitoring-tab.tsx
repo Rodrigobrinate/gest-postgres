@@ -13,12 +13,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Square, XCircle, Database } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Square, XCircle, Database, AlertTriangle } from "lucide-react";
 import { MetricChart } from "../metric-chart";
+import { cn } from "@/lib/utils";
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+}
+
+function healthColor(score: number) {
+  if (score >= 80) return "text-emerald-600";
+  if (score >= 50) return "text-amber-600";
+  return "text-red-600";
 }
 
 export function MonitoringTab({ serverId, database }: { serverId: string; database: string }) {
@@ -42,6 +50,29 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
   const { data: dbSizes } = useQuery({
     queryKey: ["servers", serverId, "database-sizes"],
     queryFn: () => api.databaseSizes(serverId),
+  });
+
+  const { data: health } = useQuery({
+    queryKey: ["servers", serverId, "health-score", database],
+    queryFn: () => api.healthScore(serverId, database),
+    enabled: !!database,
+    refetchInterval: 30_000,
+  });
+
+  const { data: bloat } = useQuery({
+    queryKey: ["servers", serverId, "bloat", database],
+    queryFn: () => api.listBloat(serverId, database),
+    enabled: !!database,
+  });
+
+  const { data: wraparound } = useQuery({
+    queryKey: ["servers", serverId, "wraparound"],
+    queryFn: () => api.wraparoundStatus(serverId),
+  });
+
+  const { data: forecast } = useQuery({
+    queryKey: ["servers", serverId, "capacity-forecast"],
+    queryFn: () => api.capacityForecast(serverId),
   });
 
   const queryClient = useQueryClient();
@@ -68,7 +99,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <StatCard label="CPU" value={stats ? `${stats.cpu_percent.toFixed(1)}%` : "—"} />
         <StatCard
           label="Memória"
@@ -80,6 +111,12 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           }
         />
         <StatCard label="Sessões ativas" value={sessions ? String(sessions.length) : "—"} />
+        <StatCard
+          label="Health score"
+          value={health ? `${health.score}/100` : "—"}
+          valueClassName={health ? healthColor(health.score) : undefined}
+          hint={health?.factors.map((f) => `${f.name}: ${f.score}`).join(" · ")}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -106,28 +143,134 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Bancos de dados</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {!dbSizes || dbSizes.length === 0 ? (
-            <p className="text-muted-foreground p-6 text-sm">Carregando...</p>
-          ) : (
-            <ul className="divide-y">
-              {dbSizes.map((d) => (
-                <li key={d.name} className="flex items-center justify-between px-4 py-2 text-sm">
-                  <span className="flex items-center gap-2 font-mono">
-                    <Database className="text-muted-foreground size-3.5" />
-                    {d.name}
-                  </span>
-                  <span className="text-muted-foreground">{formatBytes(d.size_bytes)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Bancos de dados</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {!dbSizes || dbSizes.length === 0 ? (
+              <p className="text-muted-foreground p-6 text-sm">Carregando...</p>
+            ) : (
+              <ul className="divide-y">
+                {dbSizes.map((d) => (
+                  <li key={d.name} className="flex items-center justify-between px-4 py-2 text-sm">
+                    <span className="flex items-center gap-2 font-mono">
+                      <Database className="text-muted-foreground size-3.5" />
+                      {d.name}
+                    </span>
+                    <span className="text-muted-foreground">{formatBytes(d.size_bytes)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Previsão de capacidade</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-1 text-sm">
+            {!forecast ? (
+              <p className="text-muted-foreground">Carregando...</p>
+            ) : (
+              <>
+                <p>
+                  <span className="font-medium">{formatBytes(forecast.current_disk_mb * 1024 * 1024)}</span>
+                  {" de "}
+                  {formatBytes(forecast.disk_limit_mb * 1024 * 1024)} usados
+                </p>
+                {forecast.days_until_full != null ? (
+                  <p className={forecast.days_until_full < 14 ? "text-red-600" : "text-muted-foreground"}>
+                    Ritmo atual: disco cheio em ~{Math.round(forecast.days_until_full)} dias
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    {forecast.trend_mb_per_day > 0
+                      ? "Crescendo, mas sem risco no ritmo atual"
+                      : "Sem tendência de crescimento na janela observada"}
+                  </p>
+                )}
+                <p className="text-muted-foreground text-xs">
+                  Baseado em {forecast.sample_window} (histórico em memória, reseta se o backend reiniciar)
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Wraparound (age de transação)</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {!wraparound || wraparound.length === 0 ? (
+              <p className="text-muted-foreground p-6 text-sm">Carregando...</p>
+            ) : (
+              <ul className="divide-y">
+                {wraparound.map((w) => (
+                  <li key={w.database} className="flex items-center justify-between px-4 py-2 text-sm">
+                    <span className="font-mono">{w.database}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{w.age.toLocaleString("pt-BR")}</span>
+                      {w.status === "ok" ? (
+                        <Badge variant="outline">ok</Badge>
+                      ) : (
+                        <Badge
+                          className={cn(
+                            "gap-1",
+                            w.status === "critical" ? "bg-red-600 text-white" : "bg-amber-500 text-white"
+                          )}
+                        >
+                          <AlertTriangle className="size-3" />
+                          {w.status === "critical" ? "crítico" : "atenção"}
+                        </Badge>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Bloat (tuplas mortas)</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {!bloat || bloat.length === 0 ? (
+              <p className="text-muted-foreground p-6 text-sm">Nenhuma tabela com dados ainda.</p>
+            ) : (
+              <ul className="divide-y">
+                {bloat.slice(0, 8).map((b) => (
+                  <li key={`${b.schema}.${b.table}`} className="px-4 py-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs">
+                        {b.schema}.{b.table}
+                      </span>
+                      <span
+                        className={cn(
+                          "text-xs",
+                          b.dead_ratio >= 0.2 ? "text-red-600" : "text-muted-foreground"
+                        )}
+                      >
+                        {(b.dead_ratio * 100).toFixed(0)}% mortas ({b.dead_tuples})
+                      </span>
+                    </div>
+                    {b.suggestion && (
+                      <p className="text-muted-foreground text-xs">{b.suggestion}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>
@@ -204,13 +347,23 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
   );
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function StatCard({
+  label,
+  value,
+  hint,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  valueClassName?: string;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
         <p className="text-muted-foreground text-xs">{label}</p>
-        <p className="text-2xl font-semibold">{value}</p>
-        {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+        <p className={cn("text-2xl font-semibold", valueClassName)}>{value}</p>
+        {hint && <p className="text-muted-foreground truncate text-xs" title={hint}>{hint}</p>}
       </CardContent>
     </Card>
   );
