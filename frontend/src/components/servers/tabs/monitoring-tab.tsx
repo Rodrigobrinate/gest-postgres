@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Square, XCircle, Database, AlertTriangle } from "lucide-react";
 import { MetricChart } from "../metric-chart";
+import { AlertRules } from "../alert-rules";
 import { cn } from "@/lib/utils";
 
 function formatBytes(bytes: number) {
@@ -343,6 +344,8 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           )}
         </CardContent>
       </Card>
+
+      <AlertRules serverId={serverId} />
     </div>
   );
 }

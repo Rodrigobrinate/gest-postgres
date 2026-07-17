@@ -288,6 +288,26 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export type AlertMetric = "connections_pct" | "disk_pct" | "long_running_query_seconds" | "deadlocks";
+
+export interface AlertRule {
+  id: string;
+  server_id: string;
+  metric: AlertMetric;
+  threshold: number;
+  webhook_url: string;
+  enabled: boolean;
+  last_triggered_at: string | null;
+  last_value: number | null;
+  created_at: string;
+}
+
+export interface CreateAlertRuleInput {
+  metric: AlertMetric;
+  threshold: number;
+  webhook_url: string;
+}
+
 export interface RetentionPolicy {
   id: string;
   server_id: string;
@@ -731,6 +751,23 @@ export const api = {
   runRetentionPolicy: (id: string, policyId: string) =>
     request<{ rows_affected: number }>(`/api/v1/servers/${id}/retention-policies/${policyId}/run`, {
       method: "POST",
+    }),
+
+  listAlertRules: (id: string) => request<AlertRule[]>(`/api/v1/servers/${id}/alert-rules`),
+
+  createAlertRule: (id: string, input: CreateAlertRuleInput) =>
+    request<AlertRule>(`/api/v1/servers/${id}/alert-rules`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteAlertRule: (id: string, ruleId: string) =>
+    request<void>(`/api/v1/servers/${id}/alert-rules/${ruleId}`, { method: "DELETE" }),
+
+  setAlertRuleEnabled: (id: string, ruleId: string, enabled: boolean) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/alert-rules/${ruleId}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
     }),
 
   suggestIndexes: (id: string, database: string) =>

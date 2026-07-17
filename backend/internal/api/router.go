@@ -100,5 +100,10 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("POST /api/v1/servers/{id}/retention-policies/{policyId}/enabled", detail.SetRetentionPolicyEnabled)
 	mux.HandleFunc("POST /api/v1/servers/{id}/retention-policies/{policyId}/run", detail.RunRetentionPolicy)
 
+	mux.HandleFunc("GET /api/v1/servers/{id}/alert-rules", detail.ListAlertRules)
+	mux.HandleFunc("POST /api/v1/servers/{id}/alert-rules", detail.CreateAlertRule)
+	mux.HandleFunc("DELETE /api/v1/servers/{id}/alert-rules/{ruleId}", detail.DeleteAlertRule)
+	mux.HandleFunc("POST /api/v1/servers/{id}/alert-rules/{ruleId}/enabled", detail.SetAlertRuleEnabled)
+
 	return withCORS(withLogging(mux))
 }

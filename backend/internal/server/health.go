@@ -302,9 +302,15 @@ func (s *Service) GetCapacityForecast(ctx context.Context, id string) (*Capacity
 	trendPerDay := slopePerHour * 24
 	forecast.TrendMBPerDay = trendPerDay
 
+	// Tendência praticamente zero (mas tecnicamente positiva, por ruído de
+	// amostragem) projeta "disco cheio em 1 milhão de anos" — não é uma
+	// previsão útil. Só reporta um prazo se ele cair numa janela plausível.
+	const maxPlausibleDays = 3650 // 10 anos
 	if trendPerDay > 0 && current < limitMB {
 		days := (limitMB - current) / trendPerDay
-		forecast.DaysUntilFull = &days
+		if days <= maxPlausibleDays {
+			forecast.DaysUntilFull = &days
+		}
 	}
 	return forecast, nil
 }
