@@ -142,7 +142,7 @@ export function CreateServerDialog() {
                   onValueChange={(v) => v && setForm({ ...form, version: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>{(v: string) => (v ? `PostgreSQL ${v}` : "")}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {VERSIONS.map((v) => (
@@ -161,7 +161,9 @@ export function CreateServerDialog() {
                   onValueChange={(v) => v && setForm({ ...form, preset: v as Preset })}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: Preset) => PRESETS.find((p) => p.value === v)?.label ?? v}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {PRESETS.map((p) => (

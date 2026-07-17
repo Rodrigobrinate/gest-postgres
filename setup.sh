@@ -94,6 +94,20 @@ else
 	cp .env.example .env
 	sed -i "s/^METADATA_DB_PASSWORD=.*/METADATA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 	sed -i "s/^CREDENTIAL_ENCRYPTION_KEY=.*/CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)/" .env
+
+	# PUBLIC_API_URL vira NEXT_PUBLIC_API_URL embutido no bundle JS do frontend em
+	# build time — precisa ser o IP/domínio que o NAVEGADOR do usuário alcança, não
+	# "localhost" (que resolveria pro localhost do PC de quem tá acessando, não do
+	# servidor). Detecta o IP público automaticamente; sem internet, fica localhost
+	# mesmo (funciona só pra acessar de dentro da própria máquina).
+	PUBLIC_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+	if [[ -n "$PUBLIC_IP" ]]; then
+		sed -i "s#^PUBLIC_API_URL=.*#PUBLIC_API_URL=http://${PUBLIC_IP}:8080#" .env
+		ok "PUBLIC_API_URL detectado automaticamente: http://${PUBLIC_IP}:8080"
+	else
+		warn "não consegui detectar IP público — PUBLIC_API_URL ficou localhost:8080 (edita o .env se for acessar de fora)"
+	fi
+
 	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env
 	ok ".env criado com senha do metadata-db e chave de criptografia geradas"
 fi

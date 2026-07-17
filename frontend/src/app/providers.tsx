@@ -11,6 +11,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 5_000,
             refetchInterval: 5_000,
+            // Sem isso o polling para quando a aba perde foco — usuário troca de
+            // aba enquanto o servidor sobe e volta pra ver status desatualizado.
+            refetchIntervalInBackground: true,
           },
         },
       })
