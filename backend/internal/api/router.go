@@ -90,6 +90,7 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("GET /api/v1/servers/{id}/wraparound", detail.Wraparound)
 	mux.HandleFunc("GET /api/v1/servers/{id}/health-score", detail.HealthScore)
 	mux.HandleFunc("GET /api/v1/servers/{id}/capacity-forecast", detail.CapacityForecast)
+	mux.HandleFunc("GET /api/v1/servers/{id}/tuning-suggestions", detail.SuggestTuning)
 
 	return withCORS(withLogging(mux))
 }

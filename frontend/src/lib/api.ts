@@ -288,6 +288,14 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export interface TuningSuggestion {
+  param: string;
+  current_value: string;
+  suggested_value: string;
+  reason: string;
+  differs: boolean;
+}
+
 export interface IndexSuggestion {
   schema: string;
   table: string;
@@ -665,6 +673,8 @@ export const api = {
 
   capacityForecast: (id: string) =>
     request<CapacityForecast>(`/api/v1/servers/${id}/capacity-forecast`),
+
+  tuningSuggestions: (id: string) => request<TuningSuggestion[]>(`/api/v1/servers/${id}/tuning-suggestions`),
 
   suggestIndexes: (id: string, database: string) =>
     request<IndexSuggestion[]>(`/api/v1/servers/${id}/indexes/suggestions?database=${encodeURIComponent(database)}`),

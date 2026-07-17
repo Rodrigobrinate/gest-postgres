@@ -40,6 +40,15 @@ func (h *DetailHandler) HealthScore(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, score)
 }
 
+func (h *DetailHandler) SuggestTuning(w http.ResponseWriter, r *http.Request) {
+	suggestions, err := h.service.SuggestTuning(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, suggestions)
+}
+
 func (h *DetailHandler) CapacityForecast(w http.ResponseWriter, r *http.Request) {
 	forecast, err := h.service.GetCapacityForecast(r.Context(), r.PathValue("id"))
 	if err != nil {

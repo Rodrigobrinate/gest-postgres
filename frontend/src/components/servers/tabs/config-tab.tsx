@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Search } from "lucide-react";
+import { AlertTriangle, Search, Wand2 } from "lucide-react";
 
 export function ConfigTab({ serverId, database }: { serverId: string; database: string }) {
   const { data: params, isLoading } = useQuery({
@@ -18,6 +18,12 @@ export function ConfigTab({ serverId, database }: { serverId: string; database: 
     enabled: !!database,
   });
 
+  const { data: tuning } = useQuery({
+    queryKey: ["servers", serverId, "tuning-suggestions"],
+    queryFn: () => api.tuningSuggestions(serverId),
+  });
+
+  const [showTuning, setShowTuning] = useState(false);
   const [filter, setFilter] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
 
@@ -63,9 +69,62 @@ export function ConfigTab({ serverId, database }: { serverId: string; database: 
 
   const pendingRestart = params.some((p) => p.pending_restart);
   const editCount = Object.keys(edits).length;
+  const tuningDiffs = tuning?.filter((t) => t.differs) ?? [];
 
   return (
     <div className="flex flex-col gap-4">
+      <Card>
+        <CardContent className="p-4">
+          <button
+            className="flex w-full items-center justify-between text-left"
+            onClick={() => setShowTuning((v) => !v)}
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Wand2 className="size-4" />
+              Tuning assistido (baseado nos recursos do container)
+              {tuningDiffs.length > 0 && (
+                <Badge variant="outline">{tuningDiffs.length} sugestão(ões)</Badge>
+              )}
+            </span>
+            <span className="text-muted-foreground text-xs">{showTuning ? "ocultar" : "ver"}</span>
+          </button>
+          {showTuning && (
+            <div className="mt-3 flex flex-col gap-2">
+              {!tuning ? (
+                <p className="text-muted-foreground text-sm">Carregando...</p>
+              ) : (
+                tuning.map((t) => (
+                  <div
+                    key={t.param}
+                    className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-sm first:border-t-0 first:pt-0"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-mono text-xs font-medium">{t.param}</span>
+                      <p className="text-muted-foreground text-xs">
+                        atual: <span className="font-mono">{t.current_value}</span> · sugerido:{" "}
+                        <span className="font-mono">{t.suggested_value}</span>
+                      </p>
+                      <p className="text-muted-foreground text-xs">{t.reason}</p>
+                    </div>
+                    {t.differs && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setEdits((cur) => ({ ...cur, [t.param]: t.suggested_value }))
+                        }
+                      >
+                        Usar sugestão
+                      </Button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {pendingRestart && (
         <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <AlertTriangle className="size-4 shrink-0" />
