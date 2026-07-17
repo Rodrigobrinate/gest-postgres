@@ -288,6 +288,13 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export interface LogLine {
+  timestamp: string;
+  text: string;
+  cpu_percent: number | null;
+  connection_count: number | null;
+}
+
 export type AlertMetric = "connections_pct" | "disk_pct" | "long_running_query_seconds" | "deadlocks";
 
 export interface AlertRule {
@@ -573,6 +580,9 @@ export const api = {
 
   logs: (id: string, tail = 500) =>
     request<{ logs: string }>(`/api/v1/servers/${id}/logs?tail=${tail}`),
+
+  logsTimeline: (id: string, tail = 200) =>
+    request<LogLine[]>(`/api/v1/servers/${id}/logs-timeline?tail=${tail}`),
 
   stats: (id: string) => request<ContainerStats>(`/api/v1/servers/${id}/stats`),
 

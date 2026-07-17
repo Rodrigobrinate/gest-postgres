@@ -503,6 +503,18 @@ func (h *DetailHandler) Logs(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"logs": logs})
 }
 
+func (h *DetailHandler) LogsTimeline(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	tail := parseIntDefault(r.URL.Query().Get("tail"), 200, 1, 2000)
+
+	lines, err := h.service.LogsTimeline(r.Context(), id, tail)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, lines)
+}
+
 func (h *DetailHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	stats, err := h.service.Stats(r.Context(), id)

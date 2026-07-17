@@ -15,10 +15,23 @@ import (
 // container. A imagem postgres oficial não roda com TTY, então o stream vem
 // multiplexado (formato Docker) e precisa ser demultiplexado com stdcopy.
 func (c *Client) ContainerLogs(ctx context.Context, containerID string, tailLines int) (string, error) {
+	return c.containerLogs(ctx, containerID, tailLines, false)
+}
+
+// ContainerLogsWithTimestamps é igual, mas pede pro Docker prefixar cada
+// linha com um timestamp RFC3339Nano — não depende do log_line_prefix do
+// Postgres (que pode nem ter timestamp configurado), então dá pra cruzar
+// qualquer log com o histórico de métricas de forma confiável.
+func (c *Client) ContainerLogsWithTimestamps(ctx context.Context, containerID string, tailLines int) (string, error) {
+	return c.containerLogs(ctx, containerID, tailLines, true)
+}
+
+func (c *Client) containerLogs(ctx context.Context, containerID string, tailLines int, timestamps bool) (string, error) {
 	reader, err := c.cli.ContainerLogs(ctx, containerID, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Tail:       strconv.Itoa(tailLines),
+		Timestamps: timestamps,
 	})
 	if err != nil {
 		return "", fmt.Errorf("lendo logs do container %s: %w", containerID, err)

@@ -39,6 +39,7 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("POST /api/v1/servers/{id}/activity/{pid}/cancel", detail.CancelBackend)
 	mux.HandleFunc("POST /api/v1/servers/{id}/activity/{pid}/terminate", detail.TerminateBackend)
 	mux.HandleFunc("GET /api/v1/servers/{id}/logs", detail.Logs)
+	mux.HandleFunc("GET /api/v1/servers/{id}/logs-timeline", detail.LogsTimeline)
 	mux.HandleFunc("GET /api/v1/servers/{id}/stats", detail.Stats)
 	mux.HandleFunc("GET /api/v1/servers/{id}/roles", detail.ListRoles)
 	mux.HandleFunc("POST /api/v1/servers/{id}/roles", detail.CreateRole)
