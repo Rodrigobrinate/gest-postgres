@@ -1,0 +1,180 @@
+package docker
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/go-connections/nat"
+)
+
+// CreateContainerInput descreve um container Postgres gerenciado a ser criado.
+// Toda vez que o número de parâmetros configuráveis do postgresql.conf crescer
+// (ver REQUISITOS.md §4), eles entram como flags no comando de start (Cmd),
+// não como novos campos soltos aqui.
+type CreateContainerInput struct {
+	Name         string
+	Image        string // ex: "postgres:16"
+	Username     string
+	Password     string
+	DatabaseName string
+	HostPort     int
+	VolumeName   string
+	NetworkName  string
+	CPUCores     float64
+	MemoryMB     int
+	ServerID     string
+
+	// PostgresArgs vira argv extra do entrypoint do postgres, usado pro subset de
+	// postgresql.conf que o MVP já permite personalizar (max_connections, etc).
+	PostgresArgs []string
+}
+
+type ContainerInfo struct {
+	ID      string
+	Status  string // running, exited, restarting, created, dead, paused
+	Running bool
+}
+
+func (c *Client) CreateContainer(ctx context.Context, in CreateContainerInput) (string, error) {
+	portBinding := nat.PortMap{
+		"5432/tcp": []nat.PortBinding{
+			{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", in.HostPort)},
+		},
+	}
+
+	containerConfig := &container.Config{
+		Image: in.Image,
+		Env: []string{
+			"POSTGRES_USER=" + in.Username,
+			"POSTGRES_PASSWORD=" + in.Password,
+			"POSTGRES_DB=" + in.DatabaseName,
+		},
+		ExposedPorts: nat.PortSet{"5432/tcp": struct{}{}},
+		Labels: map[string]string{
+			LabelManaged:  "true",
+			LabelServerID: in.ServerID,
+		},
+		Cmd: in.PostgresArgs,
+	}
+
+	hostConfig := &container.HostConfig{
+		PortBindings: portBinding,
+		Binds:        []string{in.VolumeName + ":/var/lib/postgresql/data"},
+		RestartPolicy: container.RestartPolicy{
+			Name: "unless-stopped",
+		},
+		Resources: container.Resources{
+			NanoCPUs: int64(in.CPUCores * 1e9),
+			Memory:   int64(in.MemoryMB) * 1024 * 1024,
+		},
+	}
+
+	networkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: endpointsConfig(in.NetworkName),
+	}
+
+	created, err := c.cli.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, in.Name)
+	if err != nil {
+		return "", fmt.Errorf("criando container %s: %w", in.Name, err)
+	}
+
+	if err := c.cli.ContainerStart(ctx, created.ID, types.ContainerStartOptions{}); err != nil {
+		return created.ID, fmt.Errorf("iniciando container %s: %w", in.Name, err)
+	}
+
+	return created.ID, nil
+}
+
+func (c *Client) StartContainer(ctx context.Context, containerID string) error {
+	if err := c.cli.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("iniciando container %s: %w", containerID, err)
+	}
+	return nil
+}
+
+func (c *Client) StopContainer(ctx context.Context, containerID string) error {
+	timeout := 30
+	if err := c.cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("parando container %s: %w", containerID, err)
+	}
+	return nil
+}
+
+func (c *Client) RestartContainer(ctx context.Context, containerID string) error {
+	timeout := 30
+	if err := c.cli.ContainerRestart(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("reiniciando container %s: %w", containerID, err)
+	}
+	return nil
+}
+
+// RemoveContainer remove o container. removeVolume também apaga o volume nomeado
+// da instância — irreversível, a confirmação é responsabilidade da camada acima.
+func (c *Client) RemoveContainer(ctx context.Context, containerID, volumeName string, removeVolume bool) error {
+	if err := c.cli.ContainerRemove(ctx, containerID, types.ContainerRemoveOptions{
+		Force: true,
+	}); err != nil {
+		return fmt.Errorf("removendo container %s: %w", containerID, err)
+	}
+
+	if removeVolume && volumeName != "" {
+		if err := c.cli.VolumeRemove(ctx, volumeName, true); err != nil {
+			return fmt.Errorf("removendo volume %s: %w", volumeName, err)
+		}
+	}
+	return nil
+}
+
+func (c *Client) InspectContainer(ctx context.Context, containerID string) (ContainerInfo, error) {
+	info, err := c.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return ContainerInfo{}, fmt.Errorf("inspecionando container %s: %w", containerID, err)
+	}
+	return ContainerInfo{
+		ID:      info.ID,
+		Status:  info.State.Status,
+		Running: info.State.Running,
+	}, nil
+}
+
+// ListManagedContainers retorna todos os containers com a label gestpg.managed=true,
+// usado pra reconciliar estado na inicialização (containers que existem no Docker
+// mas cujo status no metadata DB ficou desatualizado).
+func (c *Client) ListManagedContainers(ctx context.Context) ([]types.Container, error) {
+	containers, err := c.cli.ContainerList(ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: filters.NewArgs(filters.Arg("label", LabelManaged+"=true")),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listando containers gerenciados: %w", err)
+	}
+	return containers, nil
+}
+
+// WaitHealthy faz polling simples do status até o container reportar "running",
+// com timeout. Não usa healthcheck do Docker (a imagem postgres oficial não define
+// um por padrão) — a checagem real de "aceita conexões" fica pro service, que tenta
+// abrir uma conexão pgx com retry.
+func (c *Client) WaitHealthy(ctx context.Context, containerID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		info, err := c.InspectContainer(ctx, containerID)
+		if err != nil {
+			return err
+		}
+		if info.Running {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("timeout esperando container %s ficar running", containerID)
+}

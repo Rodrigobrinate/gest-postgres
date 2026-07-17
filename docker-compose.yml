@@ -1,0 +1,79 @@
+networks:
+  gestpg-internal:
+    name: gestpg-internal
+  # Rede onde os containers Postgres GERENCIADOS (criados via UI) são conectados.
+  # Declarada aqui pra existir antes do backend subir; o backend também checa/cria
+  # via Docker API (internal/docker Client.EnsureNetwork) então isso é redundante
+  # de propósito — só evita corrida na primeira subida do stack.
+  gestpg-managed:
+    name: gestpg-managed
+
+volumes:
+  metadata_db_data:
+
+services:
+  metadata-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${METADATA_DB_USER}
+      POSTGRES_PASSWORD: ${METADATA_DB_PASSWORD}
+      POSTGRES_DB: ${METADATA_DB_NAME}
+    volumes:
+      - metadata_db_data:/var/lib/postgresql/data
+    networks: [gestpg-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${METADATA_DB_USER} -d ${METADATA_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Único ponto de contato com o Docker Engine. O backend NUNCA monta o socket
+  # direto — só esse proxy, com as chamadas de API restritas ao mínimo necessário
+  # pra criar/start/stop/inspect containers, volumes e redes.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      POST: 1
+      INFO: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [gestpg-internal]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: ":8080"
+      METADATA_DATABASE_URL: postgres://${METADATA_DB_USER}:${METADATA_DB_PASSWORD}@metadata-db:5432/${METADATA_DB_NAME}?sslmode=disable
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      MANAGED_NETWORK_NAME: gestpg-managed
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+    ports:
+      - "8080:8080"
+    depends_on:
+      metadata-db:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
+    networks: [gestpg-internal, gestpg-managed]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* é embutido no bundle JS em build time (roda no navegador
+        # do usuário), por isso precisa ser a URL pública da API, não o nome do
+        # serviço Docker interno.
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks: [gestpg-internal]
