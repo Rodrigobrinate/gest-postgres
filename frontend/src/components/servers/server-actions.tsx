@@ -55,7 +55,12 @@ export function ServerActions({ server }: { server: ManagedServer }) {
     },
   });
 
-  const busy = start.isPending || stop.isPending || restart.isPending;
+  // "creating"/"removing" = container ainda não existe (ou já foi embora) no
+  // Docker — chamar start/stop/restart nesse meio-tempo vira erro confuso lá
+  // no backend, então trava aqui antes mesmo de deixar clicar.
+  const noContainerYet = server.status === "creating" || server.status === "removing";
+  const busy = start.isPending || stop.isPending || restart.isPending || noContainerYet;
+  const lifecycleTitle = noContainerYet ? "Aguarde o provisionamento terminar" : undefined;
 
   return (
     <div className="flex items-center gap-1">
@@ -63,7 +68,7 @@ export function ServerActions({ server }: { server: ManagedServer }) {
         <Button
           size="icon"
           variant="ghost"
-          title="Iniciar"
+          title={lifecycleTitle ?? "Iniciar"}
           disabled={busy}
           onClick={() => start.mutate(server)}
         >
@@ -73,7 +78,7 @@ export function ServerActions({ server }: { server: ManagedServer }) {
         <Button
           size="icon"
           variant="ghost"
-          title="Parar"
+          title={lifecycleTitle ?? "Parar"}
           disabled={busy}
           onClick={() => stop.mutate(server)}
         >
@@ -83,7 +88,7 @@ export function ServerActions({ server }: { server: ManagedServer }) {
       <Button
         size="icon"
         variant="ghost"
-        title="Reiniciar"
+        title={lifecycleTitle ?? "Reiniciar"}
         disabled={busy}
         onClick={() => restart.mutate(server)}
       >

@@ -242,6 +242,9 @@ func (s *Service) Start(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireContainer(record); err != nil {
+		return err
+	}
 	if err := s.docker.StartContainer(ctx, record.ContainerID); err != nil {
 		return err
 	}
@@ -251,6 +254,9 @@ func (s *Service) Start(ctx context.Context, id string) error {
 func (s *Service) Stop(ctx context.Context, id string) error {
 	record, err := s.repo.Get(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := requireContainer(record); err != nil {
 		return err
 	}
 	if err := s.docker.StopContainer(ctx, record.ContainerID); err != nil {
@@ -264,6 +270,9 @@ func (s *Service) Restart(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireContainer(record); err != nil {
+		return err
+	}
 	if err := s.repo.UpdateStatus(ctx, id, StatusRestarting); err != nil {
 		return err
 	}
@@ -272,6 +281,17 @@ func (s *Service) Restart(ctx context.Context, id string) error {
 		return err
 	}
 	return s.repo.UpdateStatus(ctx, id, StatusRunning)
+}
+
+// requireContainer barra ações de lifecycle (start/stop/restart) enquanto o
+// container ainda não existe (status creating, provisionamento em background
+// ainda não chamou SetContainerID) — sem isso, a chamada ia pro Docker com um
+// container ID vazio e voltava um "page not found" cru e confuso.
+func requireContainer(record *Server) error {
+	if record.ContainerID == "" {
+		return fmt.Errorf("%w: servidor ainda está sendo provisionado, aguarde", ErrValidation)
+	}
+	return nil
 }
 
 // Delete remove o container e, se keepVolume for false, apaga também o volume
