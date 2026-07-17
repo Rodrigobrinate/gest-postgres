@@ -61,7 +61,32 @@ fi
 DOCKER="docker"
 command -v docker >/dev/null || die "docker não ficou disponível no PATH"
 
-# ---------- 3. .env ----------
+# ---------- 3. swap ----------
+# Droplets pequenos (512MB-1GB) costumam OOMar no build do frontend (next build)
+# ou do backend (go build) sem isso. Só mexe se a máquina realmente tem pouca RAM.
+SWAP_SIZE_MB=2048
+if swapon --show --noheadings | grep -q .; then
+	ok "swap já ativo"
+elif [[ -f /swapfile ]]; then
+	log "ativando /swapfile existente"
+	swapon /swapfile
+	ok "swap ativo"
+else
+	MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+	if [[ $MEM_MB -lt 1536 ]]; then
+		log "RAM baixa (${MEM_MB}MB) — criando swapfile de ${SWAP_SIZE_MB}MB pra build não OOMar"
+		fallocate -l "${SWAP_SIZE_MB}M" /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=$SWAP_SIZE_MB status=none
+		chmod 600 /swapfile
+		mkswap /swapfile >/dev/null
+		swapon /swapfile
+		grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+		ok "swap de ${SWAP_SIZE_MB}MB ativo"
+	else
+		ok "RAM (${MEM_MB}MB) suficiente, sem swap"
+	fi
+fi
+
+# ---------- 4. .env ----------
 if [[ -f .env ]]; then
 	ok ".env já existe, não mexi"
 else
@@ -73,7 +98,7 @@ else
 	ok ".env criado com senha do metadata-db e chave de criptografia geradas"
 fi
 
-# ---------- 4. backend/go.sum ----------
+# ---------- 5. backend/go.sum ----------
 # Gera dentro de um container golang efêmero — não precisa instalar Go no host.
 if [[ -f backend/go.sum ]]; then
 	ok "backend/go.sum já existe, não mexi"
@@ -90,7 +115,7 @@ else
 	ok "backend/go.sum gerado"
 fi
 
-# ---------- 5. sobe o stack ----------
+# ---------- 6. sobe o stack ----------
 log "subindo o stack (docker compose up --build -d)"
 "$DOCKER" compose up --build -d
 
