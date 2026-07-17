@@ -122,6 +122,25 @@ export interface CreateTableInput {
   columns: ColumnDef[];
 }
 
+export interface TriggerInfo {
+  name: string;
+  schema: string;
+  table: string;
+  function_name: string;
+  enabled: boolean;
+  definition: string;
+}
+
+export interface CreateTriggerInput {
+  name: string;
+  schema: string;
+  table: string;
+  timing: "BEFORE" | "AFTER" | "INSTEAD OF";
+  events: ("INSERT" | "UPDATE" | "DELETE" | "TRUNCATE")[];
+  level: "ROW" | "STATEMENT";
+  function_name: string;
+}
+
 export const COLUMN_TYPES = [
   "text",
   "varchar",
@@ -249,6 +268,39 @@ export const api = {
     request<{ logs: string }>(`/api/v1/servers/${id}/logs?tail=${tail}`),
 
   stats: (id: string) => request<ContainerStats>(`/api/v1/servers/${id}/stats`),
+
+  listTriggers: (id: string, database: string, schema: string, table: string) =>
+    request<TriggerInfo[]>(
+      `/api/v1/servers/${id}/triggers?database=${encodeURIComponent(database)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table)}`
+    ),
+
+  listTriggerFunctions: (id: string, database: string) =>
+    request<string[]>(`/api/v1/servers/${id}/trigger-functions?database=${encodeURIComponent(database)}`),
+
+  createTrigger: (id: string, database: string, input: CreateTriggerInput) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/triggers?database=${encodeURIComponent(database)}`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  setTriggerEnabled: (
+    id: string,
+    database: string,
+    schema: string,
+    table: string,
+    name: string,
+    enabled: boolean
+  ) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/triggers/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/${encodeURIComponent(name)}/${enabled ? "enable" : "disable"}?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
+
+  dropTrigger: (id: string, database: string, schema: string, table: string, name: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/triggers/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
 
   getConfig: (id: string, database: string) =>
     request<LiveConfig>(`/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`),

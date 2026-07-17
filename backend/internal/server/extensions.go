@@ -49,26 +49,9 @@ func (s *Service) ListExtensions(ctx context.Context, id, database string) ([]Ex
 }
 
 func (s *Service) EnableExtension(ctx context.Context, id, database, name string) error {
-	return s.execExtensionDDL(ctx, id, database, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{name}.Sanitize())
+	return s.execDDL(ctx, id, database, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{name}.Sanitize())
 }
 
 func (s *Service) DisableExtension(ctx context.Context, id, database, name string) error {
-	return s.execExtensionDDL(ctx, id, database, "DROP EXTENSION IF EXISTS "+pgx.Identifier{name}.Sanitize())
-}
-
-func (s *Service) execExtensionDDL(ctx context.Context, id, database, sql string) error {
-	record, err := s.getRunningServer(ctx, id)
-	if err != nil {
-		return err
-	}
-	conn, err := s.connectTo(ctx, record, database)
-	if err != nil {
-		return err
-	}
-	defer conn.Close(ctx)
-
-	if _, err := conn.Exec(ctx, sql); err != nil {
-		return fmt.Errorf("%w: %v", ErrValidation, err)
-	}
-	return nil
+	return s.execDDL(ctx, id, database, "DROP EXTENSION IF EXISTS "+pgx.Identifier{name}.Sanitize())
 }

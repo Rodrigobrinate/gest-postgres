@@ -19,6 +19,88 @@ func NewDetailHandler(service *server.Service) *DetailHandler {
 	return &DetailHandler{service: service}
 }
 
+func (h *DetailHandler) ListTriggers(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.URL.Query().Get("schema")
+	table := r.URL.Query().Get("table")
+
+	triggers, err := h.service.ListTriggers(r.Context(), id, database, schema, table)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, triggers)
+}
+
+func (h *DetailHandler) ListTriggerFunctions(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	names, err := h.service.ListTriggerFunctions(r.Context(), id, database)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, names)
+}
+
+func (h *DetailHandler) CreateTrigger(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	var in server.CreateTriggerInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+
+	if err := h.service.CreateTrigger(r.Context(), id, database, in); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+}
+
+func (h *DetailHandler) EnableTrigger(w http.ResponseWriter, r *http.Request) {
+	h.setTriggerEnabled(w, r, true)
+}
+
+func (h *DetailHandler) DisableTrigger(w http.ResponseWriter, r *http.Request) {
+	h.setTriggerEnabled(w, r, false)
+}
+
+func (h *DetailHandler) setTriggerEnabled(w http.ResponseWriter, r *http.Request, enabled bool) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+	name := r.PathValue("name")
+
+	if err := h.service.SetTriggerEnabled(r.Context(), id, database, schema, table, name, enabled); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *DetailHandler) DropTrigger(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+	name := r.PathValue("name")
+
+	if err := h.service.DropTrigger(r.Context(), id, database, schema, table, name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *DetailHandler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Table2 } from "lucide-react";
 import { CreateTableDialog } from "../create-table-dialog";
+import { TableTriggers } from "../table-triggers";
 
 const PAGE_SIZE = 50;
 
@@ -137,6 +138,12 @@ export function TablesTab({ serverId, database }: { serverId: string; database: 
                   </Button>
                 </div>
               </div>
+              <TableTriggers
+                serverId={serverId}
+                database={database}
+                schema={selected.schema}
+                table={selected.name}
+              />
             </>
           )}
         </CardContent>
