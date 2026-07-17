@@ -382,6 +382,33 @@ type runQueryInput struct {
 	SQL      string `json:"sql"`
 }
 
+type explainQueryInput struct {
+	Database string `json:"database"`
+	SQL      string `json:"sql"`
+	Analyze  bool   `json:"analyze"`
+}
+
+func (h *DetailHandler) Explain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var in explainQueryInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if in.SQL == "" {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "campo sql é obrigatório")
+		return
+	}
+
+	result, err := h.service.ExplainQuery(r.Context(), id, in.Database, in.SQL, in.Analyze)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, result)
+}
+
 func (h *DetailHandler) Query(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 

@@ -262,6 +262,32 @@ export interface HealthScore {
   factors: HealthFactor[];
 }
 
+export interface PlanNode {
+  "Node Type": string;
+  "Relation Name"?: string;
+  "Index Name"?: string;
+  "Alias"?: string;
+  "Startup Cost"?: number;
+  "Total Cost"?: number;
+  "Plan Rows"?: number;
+  "Plan Width"?: number;
+  "Actual Startup Time"?: number;
+  "Actual Total Time"?: number;
+  "Actual Rows"?: number;
+  "Actual Loops"?: number;
+  "Filter"?: string;
+  "Index Cond"?: string;
+  "Join Type"?: string;
+  "Plans"?: PlanNode[];
+  [key: string]: unknown;
+}
+
+export interface ExplainResult {
+  plan: PlanNode;
+  planning_time_ms?: number;
+  execution_time_ms?: number;
+}
+
 export interface CapacityForecast {
   current_disk_mb: number;
   disk_limit_mb: number;
@@ -443,6 +469,12 @@ export const api = {
     request<QueryResult>(`/api/v1/servers/${id}/query`, {
       method: "POST",
       body: JSON.stringify({ database, sql }),
+    }),
+
+  explainQuery: (id: string, database: string, sql: string, analyze: boolean) =>
+    request<ExplainResult>(`/api/v1/servers/${id}/explain`, {
+      method: "POST",
+      body: JSON.stringify({ database, sql, analyze }),
     }),
 
   activity: (id: string, database: string) =>

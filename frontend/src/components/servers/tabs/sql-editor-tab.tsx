@@ -7,7 +7,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import { sql as sqlLang } from "@codemirror/lang-sql";
 import { keymap } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
-import { api, ApiError, type QueryResult } from "@/lib/api";
+import { api, ApiError, type QueryResult, type ExplainResult } from "@/lib/api";
 import { formatCell } from "@/lib/utils";
 import { useQueryHistory } from "@/lib/use-query-history";
 import { Button } from "@/components/ui/button";
@@ -20,14 +20,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Play, History } from "lucide-react";
+import { Play, History, GitBranch } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ExplainTree } from "../explain-tree";
 
 const DEFAULT_SQL = "SELECT * FROM pg_catalog.pg_tables LIMIT 10;";
 
 export function SqlEditorTab({ serverId, database }: { serverId: string; database: string }) {
   const [sqlText, setSqlText] = useState(DEFAULT_SQL);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [explainResult, setExplainResult] = useState<ExplainResult | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const { history, push } = useQueryHistory(`sql-history:${serverId}`);
 
@@ -35,12 +37,25 @@ export function SqlEditorTab({ serverId, database }: { serverId: string; databas
     mutationFn: () => api.runQuery(serverId, database, sqlText),
     onSuccess: (data) => {
       setResult(data);
+      setExplainResult(null);
       push(sqlText);
       toast.success(`${data.row_count} linha(s) em ${data.duration_ms}ms`);
     },
     onError: (e) => {
       setResult(null);
       toast.error(e instanceof ApiError ? e.message : "Falha ao executar query");
+    },
+  });
+
+  const explain = useMutation({
+    mutationFn: (analyze: boolean) => api.explainQuery(serverId, database, sqlText, analyze),
+    onSuccess: (data) => {
+      setExplainResult(data);
+      setResult(null);
+    },
+    onError: (e) => {
+      setExplainResult(null);
+      toast.error(e instanceof ApiError ? e.message : "Falha ao rodar EXPLAIN");
     },
   });
 
@@ -94,13 +109,45 @@ export function SqlEditorTab({ serverId, database }: { serverId: string; databas
                   </Button>
                 )}
               </div>
-              <Button onClick={handleRun} disabled={run.isPending}>
-                <Play className="size-4" />
-                {run.isPending ? "Rodando..." : "Rodar"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  disabled={explain.isPending || !sqlText.trim()}
+                  onClick={() => explain.mutate(false)}
+                  title="EXPLAIN — mostra o plano sem executar a query"
+                >
+                  <GitBranch className="size-4" />
+                  Explain
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={explain.isPending || !sqlText.trim()}
+                  onClick={() => explain.mutate(true)}
+                  title="EXPLAIN ANALYZE — executa a query de verdade pra medir tempo real"
+                >
+                  <GitBranch className="size-4" />
+                  Explain Analyze
+                </Button>
+                <Button onClick={handleRun} disabled={run.isPending}>
+                  <Play className="size-4" />
+                  {run.isPending ? "Rodando..." : "Rodar"}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
+
+        {explainResult && (
+          <Card>
+            <CardContent className="p-4">
+              <ExplainTree
+                plan={explainResult.plan}
+                planningTimeMs={explainResult.planning_time_ms}
+                executionTimeMs={explainResult.execution_time_ms}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {result && (
           <Card>
