@@ -25,6 +25,7 @@ import { PerformanceTab } from "./tabs/performance-tab";
 import { ObjectsTab } from "./tabs/objects-tab";
 import { FunctionsTab } from "./tabs/functions-tab";
 import { ConnectionStringDialog } from "./connection-string-dialog";
+import { EditServerDialog } from "./edit-server-dialog";
 
 export function ServerDetailView({ id }: { id: string }) {
   const { data: server, isLoading } = useQuery({
@@ -98,6 +99,7 @@ export function ServerDetailView({ id }: { id: string }) {
             </div>
           )}
           <ConnectionStringDialog server={server} />
+          <EditServerDialog server={server} />
         </div>
       </header>
 

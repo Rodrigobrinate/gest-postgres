@@ -87,6 +87,23 @@ func (c *Client) CreateContainer(ctx context.Context, in CreateContainerInput) (
 	return created.ID, nil
 }
 
+// UpdateContainerResources troca limite de CPU/memória de um container
+// RODANDO sem recriar — o Docker suporta isso nativamente (diferente de
+// porta publicada, que é fixada na criação). Não reinicia o Postgres nem
+// derruba conexões.
+func (c *Client) UpdateContainerResources(ctx context.Context, containerID string, cpuCores float64, memoryMB int) error {
+	_, err := c.cli.ContainerUpdate(ctx, containerID, container.UpdateConfig{
+		Resources: container.Resources{
+			NanoCPUs: int64(cpuCores * 1e9),
+			Memory:   int64(memoryMB) * 1024 * 1024,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("atualizando recursos do container %s: %w", containerID, err)
+	}
+	return nil
+}
+
 func (c *Client) StartContainer(ctx context.Context, containerID string) error {
 	if err := c.cli.ContainerStart(ctx, containerID, types.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("iniciando container %s: %w", containerID, err)

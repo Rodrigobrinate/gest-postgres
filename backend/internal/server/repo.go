@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -95,6 +96,65 @@ func (r *Repo) SetContainerID(ctx context.Context, id, containerID string) error
 	)
 	if err != nil {
 		return fmt.Errorf("atualizando container_id do servidor %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) UpdateName(ctx context.Context, id, name string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE servers SET name = $1, updated_at = now() WHERE id = $2`,
+		name, id,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("%w: já existe um servidor com esse nome", ErrValidation)
+		}
+		return fmt.Errorf("atualizando nome do servidor %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) UpdateResources(ctx context.Context, id string, res Resources, cfg PostgresConfig) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE servers SET
+			cpu_cores = $1, memory_mb = $2, disk_gb = $3,
+			max_connections = $4, shared_buffers_mb = $5, work_mem_mb = $6,
+			maintenance_work_mem_mb = $7, effective_cache_size_mb = $8,
+			preset = 'custom', updated_at = now()
+		WHERE id = $9
+	`,
+		res.CPUCores, res.MemoryMB, res.DiskGB,
+		cfg.MaxConnections, cfg.SharedBuffersMB, cfg.WorkMemMB,
+		cfg.MaintenanceWorkMemMB, cfg.EffectiveCacheSizeMB,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("atualizando recursos do servidor %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) UpdateHostPort(ctx context.Context, id string, hostPort int) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE servers SET host_port = $1, updated_at = now() WHERE id = $2`,
+		hostPort, id,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("%w: porta %d já está em uso por outro servidor", ErrValidation, hostPort)
+		}
+		return fmt.Errorf("atualizando porta do servidor %s: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound

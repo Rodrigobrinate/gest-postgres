@@ -244,6 +244,117 @@ func (s *Service) markError(ctx context.Context, serverID string) {
 	_ = s.repo.UpdateStatus(ctx, serverID, StatusError)
 }
 
+type UpdateServerInput struct {
+	Name      *string    `json:"name"`
+	Resources *Resources `json:"resources"`
+	HostPort  *int       `json:"host_port"`
+}
+
+// UpdateServer cobre os 3 campos editáveis do MVP, cada um com um custo
+// diferente:
+//   - Nome: só metadado, sem tocar no container.
+//   - Recursos: ContainerUpdate ao vivo (Docker suporta trocar CPU/memória de
+//     container rodando sem recriar) — mas o postgresql.conf calculado a
+//     partir disso (shared_buffers etc) só é reaplicado se o usuário for na
+//     aba Configuração depois; não fazemos isso aqui pra não disparar um
+//     restart implícito e surpreendente.
+//   - Porta: Docker não permite trocar o binding de porta de um container
+//     rodando — precisa parar, remover (SEM apagar o volume) e recriar com o
+//     mesmo volume/imagem/credenciais, só a porta muda. Curto período sem
+//     aceitar conexões durante a troca.
+func (s *Service) UpdateServer(ctx context.Context, id string, in UpdateServerInput) (*Server, error) {
+	record, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if in.Name != nil && strings.TrimSpace(*in.Name) != "" && *in.Name != record.Name {
+		if err := s.repo.UpdateName(ctx, id, *in.Name); err != nil {
+			return nil, err
+		}
+		record.Name = *in.Name
+	}
+
+	if in.Resources != nil {
+		newRes := clampResources(*in.Resources)
+		newCfg := ConfigForResources(newRes)
+		if record.Status == StatusRunning && record.ContainerID != "" {
+			if err := s.docker.UpdateContainerResources(ctx, record.ContainerID, newRes.CPUCores, newRes.MemoryMB); err != nil {
+				return nil, err
+			}
+		}
+		if err := s.repo.UpdateResources(ctx, id, newRes, newCfg); err != nil {
+			return nil, err
+		}
+		record.Resources = newRes
+		record.Config = newCfg
+		record.Preset = PresetCustom
+	}
+
+	if in.HostPort != nil && *in.HostPort != record.HostPort {
+		if record.ContainerID == "" {
+			return nil, fmt.Errorf("%w: servidor sem container, não dá pra trocar porta", ErrValidation)
+		}
+		wasRunning := record.Status == StatusRunning
+
+		if err := s.docker.StopContainer(ctx, record.ContainerID); err != nil {
+			return nil, err
+		}
+		if err := s.docker.RemoveContainer(ctx, record.ContainerID, record.VolumeName, false); err != nil {
+			return nil, err
+		}
+
+		password, err := s.secretBox.Open(record.PasswordEncrypted)
+		if err != nil {
+			return nil, err
+		}
+
+		containerID, err := s.docker.CreateContainer(ctx, docker.CreateContainerInput{
+			Name:         record.ContainerName,
+			Image:        "gestpg-postgres:" + record.Version,
+			Username:     record.Username,
+			Password:     password,
+			DatabaseName: record.DatabaseName,
+			HostPort:     *in.HostPort,
+			VolumeName:   record.VolumeName,
+			NetworkName:  s.networkName,
+			CPUCores:     record.Resources.CPUCores,
+			MemoryMB:     record.Resources.MemoryMB,
+			ServerID:     id,
+		})
+		if err != nil {
+			s.markError(ctx, id)
+			return nil, fmt.Errorf("recriando container com nova porta: %w", err)
+		}
+		if err := s.repo.SetContainerID(ctx, id, containerID); err != nil {
+			return nil, err
+		}
+		if err := s.repo.UpdateHostPort(ctx, id, *in.HostPort); err != nil {
+			return nil, err
+		}
+		record.ContainerID = containerID
+		record.HostPort = *in.HostPort
+
+		// CreateContainer sempre inicia o container — se o servidor estava
+		// parado antes da edição, volta ao estado original.
+		if !wasRunning {
+			if err := s.docker.StopContainer(ctx, containerID); err != nil {
+				return nil, err
+			}
+			_ = s.repo.UpdateStatus(ctx, id, StatusStopped)
+			record.Status = StatusStopped
+		} else {
+			if err := s.docker.WaitHealthy(ctx, containerID, 60*time.Second); err != nil {
+				return nil, err
+			}
+			_ = s.repo.UpdateStatus(ctx, id, StatusRunning)
+			record.Status = StatusRunning
+		}
+	}
+
+	return record, nil
+}
+
 func (s *Service) List(ctx context.Context) ([]*Server, error) {
 	list, err := s.repo.List(ctx)
 	if err != nil {

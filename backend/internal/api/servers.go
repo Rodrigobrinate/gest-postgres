@@ -54,6 +54,20 @@ func (h *ServersHandler) Get(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, found)
 }
 
+func (h *ServersHandler) Update(w http.ResponseWriter, r *http.Request) {
+	var in server.UpdateServerInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	updated, err := h.service.UpdateServer(r.Context(), r.PathValue("id"), in)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, updated)
+}
+
 func (h *ServersHandler) Start(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.service.Start(r.Context(), id); err != nil {

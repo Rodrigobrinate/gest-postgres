@@ -43,6 +43,12 @@ export interface ManagedServer {
   updated_at: string;
 }
 
+export interface UpdateServerInput {
+  name?: string;
+  resources?: Resources;
+  host_port?: number;
+}
+
 export interface CreateServerInput {
   name: string;
   description?: string;
@@ -511,6 +517,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  updateServer: (id: string, input: UpdateServerInput) =>
+    request<ManagedServer>(`/api/v1/servers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
   startServer: (id: string) =>
     request<{ status: string }>(`/api/v1/servers/${id}/start`, { method: "POST" }),
   stopServer: (id: string) =>

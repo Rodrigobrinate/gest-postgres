@@ -37,7 +37,7 @@ Todo requisito do MVP abaixo é um checkbox. Ao implementar:
 - [x] ~~Volume nomeado por instância + rede Docker isolada~~
 - [ ] Listar servidores com status (rodando/parado/erro), versão (falta: conexões atuais — sem monitoramento ainda)
 - [x] ~~Start / Stop / Restart~~
-- [ ] Editar servidor (nome, recursos, porta)
+- [x] ~~Editar servidor (nome, recursos, porta)~~ — nome e recursos aplicam na hora (`ContainerUpdate` do Docker troca CPU/memória de container rodando sem recriar, sem derrubar conexão); porta é a exceção — Docker não permite trocar binding de porta publicada sem recriar o container, então isso para/remove (sem apagar volume)/recria com a porta nova, breve interrupção
 - [x] ~~Excluir servidor (confirmação, opção manter/apagar volume)~~
 
 Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → `sudo ./setup.sh` → criar/start/stop/restart/excluir servidor pela UI, Postgres realmente aceitando conexão). Ver histórico de commits a partir de `f5a557d` até `ee97d0e`.
