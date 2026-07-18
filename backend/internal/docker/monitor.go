@@ -46,10 +46,12 @@ func (c *Client) containerLogs(ctx context.Context, containerID string, tailLine
 }
 
 type ContainerStatsSnapshot struct {
-	CPUPercent    float64 `json:"cpu_percent"`
-	MemoryUsedMB  float64 `json:"memory_used_mb"`
-	MemoryLimitMB float64 `json:"memory_limit_mb"`
-	MemoryPercent float64 `json:"memory_percent"`
+	CPUPercent      float64 `json:"cpu_percent"`
+	MemoryUsedMB    float64 `json:"memory_used_mb"`
+	MemoryLimitMB   float64 `json:"memory_limit_mb"`
+	MemoryPercent   float64 `json:"memory_percent"`
+	NetworkRxBytes  int64   `json:"network_rx_bytes"` // cumulativo desde que o container subiu, não taxa
+	NetworkTxBytes  int64   `json:"network_tx_bytes"`
 }
 
 // dockerStatsRaw só declara os campos que a gente usa — o JSON completo de
@@ -76,6 +78,10 @@ type dockerStatsRaw struct {
 			Cache uint64 `json:"cache"`
 		} `json:"stats"`
 	} `json:"memory_stats"`
+	Networks map[string]struct {
+		RxBytes uint64 `json:"rx_bytes"`
+		TxBytes uint64 `json:"tx_bytes"`
+	} `json:"networks"`
 }
 
 // ContainerStats pega um snapshot único (sem stream) de CPU/memória, com o
@@ -114,10 +120,18 @@ func (c *Client) ContainerStats(ctx context.Context, containerID string) (Contai
 		memPercent = (memUsage / memLimit) * 100.0
 	}
 
+	var rxBytes, txBytes uint64
+	for _, n := range raw.Networks {
+		rxBytes += n.RxBytes
+		txBytes += n.TxBytes
+	}
+
 	return ContainerStatsSnapshot{
-		CPUPercent:    cpuPercent,
-		MemoryUsedMB:  memUsage / 1024 / 1024,
-		MemoryLimitMB: memLimit / 1024 / 1024,
-		MemoryPercent: memPercent,
+		CPUPercent:     cpuPercent,
+		MemoryUsedMB:   memUsage / 1024 / 1024,
+		MemoryLimitMB:  memLimit / 1024 / 1024,
+		MemoryPercent:  memPercent,
+		NetworkRxBytes: int64(rxBytes),
+		NetworkTxBytes: int64(txBytes),
 	}, nil
 }

@@ -288,6 +288,30 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export interface ContainerStat {
+  container_id: string;
+  name: string;
+  image: string;
+  is_managed: boolean;
+  server_id?: string;
+  server_name?: string;
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_limit_mb: number;
+  network_rx_bytes: number;
+  network_tx_bytes: number;
+}
+
+export interface PlatformStats {
+  containers: ContainerStat[];
+  total_cpu_percent: number;
+  total_memory_used_mb: number;
+  total_memory_limit_mb: number;
+  disk_used_bytes: number;
+  network_rx_bytes_total: number;
+  network_tx_bytes_total: number;
+}
+
 export interface DiscoveredContainer {
   container_id: string;
   name: string;
@@ -479,6 +503,8 @@ export const api = {
     request<void>(`/api/v1/servers/${id}?keep_volume=${keepVolume}`, {
       method: "DELETE",
     }),
+
+  platformStats: () => request<PlatformStats>(`/api/v1/platform-stats`),
 
   discover: () => request<DiscoveredContainer[]>(`/api/v1/discover`),
 

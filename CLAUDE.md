@@ -103,7 +103,7 @@ Todos os itens acima testados via curl direto no droplet (criar/listar/refresh/e
 
 ### Plataforma
 - [ ] Login/senha (1 usuário admin, sem RBAC multi-nível ainda)
-- [ ] Dashboard principal com cards de resumo + gráficos do item Monitoramento
+- [x] ~~Dashboard principal com cards de resumo + gráficos do item Monitoramento~~ — CPU/memória/disco/rede agregados de TODOS os containers Docker do host (não só os gerenciados — dá pra ver o que a própria plataforma consome também), + lista por container com destaque pros gerenciados. "Recursos do host" de verdade (fora do mundo Docker) não é possível com a arquitetura atual (backend só fala com o host via Docker socket-proxy, sem acesso a /proc) — disco vem do `/system/df` do Docker (imagens+containers+volumes, exigiu habilitar a categoria `SYSTEM` no proxy), rede é acumulado desde que cada container subiu (não taxa em tempo real)
 
 ---
 

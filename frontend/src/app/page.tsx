@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateServerDialog } from "@/components/servers/create-server-dialog";
 import { DiscoverServersDialog } from "@/components/servers/discover-servers-dialog";
+import { PlatformStatsCards } from "@/components/servers/platform-stats-cards";
 import { ServerTable } from "@/components/servers/server-table";
 import { Database } from "lucide-react";
 
@@ -24,6 +25,8 @@ export default function Home() {
           <CreateServerDialog />
         </div>
       </header>
+
+      <PlatformStatsCards />
 
       <Card>
         <CardHeader>

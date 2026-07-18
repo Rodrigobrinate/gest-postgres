@@ -18,6 +18,9 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("GET /api/v1/discover", discovery.Discover)
 	mux.HandleFunc("POST /api/v1/discover/{containerId}/register", discovery.Register)
 
+	platform := NewPlatformHandler(serverService)
+	mux.HandleFunc("GET /api/v1/platform-stats", platform.Stats)
+
 	servers := NewServersHandler(serverService)
 	mux.HandleFunc("POST /api/v1/servers", servers.Create)
 	mux.HandleFunc("GET /api/v1/servers", servers.List)

@@ -98,6 +98,17 @@ func (c *Client) PullImageIfMissing(ctx context.Context, image string) error {
 	return nil
 }
 
+// DiskUsage lê o /system/df do Docker (imagens+containers+volumes) — proxy
+// honesto de "quanto disco a plataforma tá usando", já que não tem acesso ao
+// filesystem do host além disso (sem device livre/total real da máquina).
+func (c *Client) DiskUsage(ctx context.Context) (types.DiskUsage, error) {
+	du, err := c.cli.DiskUsage(ctx, types.DiskUsageOptions{})
+	if err != nil {
+		return types.DiskUsage{}, fmt.Errorf("lendo uso de disco: %w", err)
+	}
+	return du, nil
+}
+
 func endpointsConfig(networkName string) map[string]*network.EndpointSettings {
 	return map[string]*network.EndpointSettings{
 		networkName: {},
