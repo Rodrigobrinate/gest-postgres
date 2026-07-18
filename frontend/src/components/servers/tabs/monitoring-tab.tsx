@@ -14,10 +14,20 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Square, XCircle, Database, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Square, XCircle, Database, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { MetricChart } from "../metric-chart";
 import { AlertRules } from "../alert-rules";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -53,6 +63,35 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
     queryFn: () => api.databaseSizes(serverId),
   });
 
+  const [newDbOpen, setNewDbOpen] = useState(false);
+  const [newDbName, setNewDbName] = useState("");
+
+  const queryClient = useQueryClient();
+  const invalidateDbs = () => {
+    queryClient.invalidateQueries({ queryKey: ["servers", serverId, "database-sizes"] });
+    queryClient.invalidateQueries({ queryKey: ["servers", serverId, "databases"] });
+  };
+
+  const createDb = useMutation({
+    mutationFn: () => api.createDatabase(serverId, newDbName),
+    onSuccess: () => {
+      toast.success(`Banco "${newDbName}" criado`);
+      setNewDbOpen(false);
+      setNewDbName("");
+      invalidateDbs();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar banco"),
+  });
+
+  const dropDb = useMutation({
+    mutationFn: (name: string) => api.dropDatabase(serverId, name),
+    onSuccess: (_d, name) => {
+      toast.success(`Banco "${name}" excluído`);
+      invalidateDbs();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao excluir banco"),
+  });
+
   const { data: health } = useQuery({
     queryKey: ["servers", serverId, "health-score", database],
     queryFn: () => api.healthScore(serverId, database),
@@ -76,7 +115,6 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
     queryFn: () => api.capacityForecast(serverId),
   });
 
-  const queryClient = useQueryClient();
   const invalidateActivity = () =>
     queryClient.invalidateQueries({ queryKey: ["servers", serverId, "activity"] });
 
@@ -146,8 +184,32 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Bancos de dados</CardTitle>
+            <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
+              <DialogTrigger render={<Button size="sm" variant="outline" />}>
+                <Plus className="size-4" />
+                Novo banco
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Criar banco de dados</DialogTitle>
+                </DialogHeader>
+                <Input
+                  placeholder="nome_do_banco"
+                  value={newDbName}
+                  onChange={(e) => setNewDbName(e.target.value)}
+                />
+                <DialogFooter>
+                  <Button
+                    disabled={createDb.isPending || !newDbName.trim()}
+                    onClick={() => createDb.mutate()}
+                  >
+                    {createDb.isPending ? "Criando..." : "Criar"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </CardHeader>
           <CardContent className="p-0">
             {!dbSizes || dbSizes.length === 0 ? (
@@ -160,7 +222,18 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
                       <Database className="text-muted-foreground size-3.5" />
                       {d.name}
                     </span>
-                    <span className="text-muted-foreground">{formatBytes(d.size_bytes)}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{formatBytes(d.size_bytes)}</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="size-6 text-red-600"
+                        disabled={dropDb.isPending}
+                        onClick={() => dropDb.mutate(d.name)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -19,6 +19,31 @@ func NewDetailHandler(service *server.Service) *DetailHandler {
 	return &DetailHandler{service: service}
 }
 
+type createDatabaseInput struct {
+	Name string `json:"name"`
+}
+
+func (h *DetailHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
+	var in createDatabaseInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.CreateDatabase(r.Context(), r.PathValue("id"), in.Name); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+}
+
+func (h *DetailHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DropDatabase(r.Context(), r.PathValue("id"), r.PathValue("name")); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *DetailHandler) RotateSuperuserPassword(w http.ResponseWriter, r *http.Request) {
 	password, err := h.service.RotateSuperuserPassword(r.Context(), r.PathValue("id"))
 	if err != nil {

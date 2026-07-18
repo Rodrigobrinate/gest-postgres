@@ -571,6 +571,15 @@ export const api = {
 
   listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
 
+  createDatabase: (id: string, name: string) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/databases`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  dropDatabase: (id: string, name: string) =>
+    request<void>(`/api/v1/servers/${id}/databases/${encodeURIComponent(name)}`, { method: "DELETE" }),
+
   databaseSizes: (id: string) => request<DatabaseSize[]>(`/api/v1/servers/${id}/database-sizes`),
 
   metricsHistory: (id: string) => request<MetricPoint[]>(`/api/v1/servers/${id}/metrics-history`),

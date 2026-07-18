@@ -55,7 +55,7 @@ Achado e corrigido um bug de arquitetura sério aqui: a config inicial entrava c
 Configuração expandida bem além do subset original: ~86 parâmetros geridos, agrupados por categoria (memória, conexões, WAL, autovacuum, logging, etc.), com busca, indicação de quais precisam restart vs. reload, e edição só dos campos alterados. Fora do editável de propósito: `listen_addresses`/`port`/`unix_socket_directories`/certificados/`shared_preload_libraries`/`recovery_target_*`/`restore_command` e toggles de debug (`enable_*`) — mudar isso quebra ou exige orquestração que a plataforma ainda não faz.
 
 ### Banco de dados / objetos (mínimo pra ser usável)
-- [ ] Criar/listar/excluir database (dá pra fazer via editor SQL, mas sem UI dedicada ainda)
+- [x] ~~Criar/listar/excluir database~~ (aba Monitoramento, card "Bancos de dados" — excluir usa `DROP DATABASE ... WITH (FORCE)`, Postgres 13+, derruba conexões abertas em vez de falhar; banco principal do servidor não pode ser excluído)
 - [ ] Criar/listar/excluir tabela via formulário (criar: ok via formulário; excluir tabela ainda só via editor SQL)
 - [x] ~~Editor SQL básico (rodar query, ver resultado em grid, sem autocomplete ainda)~~ — ganhou syntax highlighting (CodeMirror) e histórico de queries também, além do MVP original
 - [x] ~~Ver dados da tabela em grid com paginação~~
