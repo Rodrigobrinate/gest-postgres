@@ -396,6 +396,21 @@ func (h *DetailHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 }
 
+func (h *DetailHandler) DropTable(w http.ResponseWriter, r *http.Request) {
+	err := h.service.DropTable(
+		r.Context(),
+		r.PathValue("id"),
+		r.URL.Query().Get("database"),
+		r.PathValue("schema"),
+		r.PathValue("table"),
+	)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *DetailHandler) TableRows(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

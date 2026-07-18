@@ -56,7 +56,7 @@ Configuração expandida bem além do subset original: ~86 parâmetros geridos, 
 
 ### Banco de dados / objetos (mínimo pra ser usável)
 - [x] ~~Criar/listar/excluir database~~ (aba Monitoramento, card "Bancos de dados" — excluir usa `DROP DATABASE ... WITH (FORCE)`, Postgres 13+, derruba conexões abertas em vez de falhar; banco principal do servidor não pode ser excluído)
-- [ ] Criar/listar/excluir tabela via formulário (criar: ok via formulário; excluir tabela ainda só via editor SQL)
+- [x] ~~Criar/listar/excluir tabela via formulário~~ (excluir: botão aparece ao passar o mouse na lista de tabelas)
 - [x] ~~Editor SQL básico (rodar query, ver resultado em grid, sem autocomplete ainda)~~ — ganhou syntax highlighting (CodeMirror) e histórico de queries também, além do MVP original
 - [x] ~~Ver dados da tabela em grid com paginação~~
 

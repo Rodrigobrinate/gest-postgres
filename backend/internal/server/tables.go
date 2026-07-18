@@ -104,3 +104,11 @@ func (s *Service) CreateTable(ctx context.Context, id, database string, in Creat
 	}
 	return nil
 }
+
+func (s *Service) DropTable(ctx context.Context, id, database, schema, name string) error {
+	if !identRegex.MatchString(schema) || !identRegex.MatchString(name) {
+		return fmt.Errorf("%w: schema/nome inválido", ErrValidation)
+	}
+	sql := "DROP TABLE " + pgx.Identifier{schema, name}.Sanitize()
+	return s.execDDL(ctx, id, database, sql)
+}

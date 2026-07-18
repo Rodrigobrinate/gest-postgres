@@ -593,6 +593,12 @@ export const api = {
       { method: "POST", body: JSON.stringify(input) }
     ),
 
+  dropTable: (id: string, database: string, schema: string, table: string) =>
+    request<void>(
+      `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}?database=${encodeURIComponent(database)}`,
+      { method: "DELETE" }
+    ),
+
   tableRows: (
     id: string,
     schema: string,
