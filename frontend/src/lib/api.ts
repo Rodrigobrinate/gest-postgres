@@ -460,6 +460,22 @@ export interface InfraVolume {
   size_bytes?: number;
 }
 
+export interface ComposeProject {
+  id: string;
+  name: string;
+  compose_content: string;
+  status: "deployed" | "error";
+  last_error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BuildResult {
+  tag: string;
+  log: string;
+  success: boolean;
+}
+
 export type BackupStorageKind = "local" | "gdrive";
 
 export interface Backup {
@@ -616,6 +632,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (res.status === 204) {
     return undefined as T;
+  }
+  return res.json() as Promise<T>;
+}
+
+// requestAllowDomainFailure é pra endpoints onde uma falha (compose deploy,
+// build de imagem) ainda devolve um corpo estruturado útil (log, last_error)
+// que a tela precisa mostrar — 422 aqui não é erro de protocolo, é resultado
+// de domínio, então não joga ApiError fora o corpo.
+async function requestAllowDomainFailure<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  if (!res.ok && res.status !== 422) {
+    let message = res.statusText;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch {
+      // corpo não era JSON, mantém statusText
+    }
+    throw new ApiError(res.status, message);
   }
   return res.json() as Promise<T>;
 }
@@ -1128,6 +1166,41 @@ export const api = {
 
   removeInfraVolume: (name: string) =>
     request<void>(`/api/v1/infra/volumes/${name}`, { method: "DELETE" }),
+
+  listComposeProjects: () => request<ComposeProject[]>(`/api/v1/infra/compose`),
+
+  deployCompose: (name: string, compose: string) =>
+    requestAllowDomainFailure<ComposeProject>(`/api/v1/infra/compose`, {
+      method: "POST",
+      body: JSON.stringify({ name, compose }),
+    }),
+
+  removeComposeProject: (name: string, removeVolumes: boolean) =>
+    request<void>(`/api/v1/infra/compose/${name}?remove_volumes=${removeVolumes}`, { method: "DELETE" }),
+
+  buildFromDockerfile: (tag: string, dockerfile: string) =>
+    requestAllowDomainFailure<BuildResult>(`/api/v1/infra/build`, {
+      method: "POST",
+      body: JSON.stringify({ tag, dockerfile }),
+    }),
+
+  buildFromContext: async (tag: string, file: File): Promise<BuildResult> => {
+    const form = new FormData();
+    form.append("tag", tag);
+    form.append("context", file);
+    const res = await fetch(`${API_URL}/api/v1/infra/build/upload`, { method: "POST", body: form });
+    if (!res.ok && res.status !== 422) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // corpo não era JSON
+      }
+      throw new ApiError(res.status, message);
+    }
+    return res.json();
+  },
 };
 
 export { ApiError };

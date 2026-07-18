@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gest-postgres/backend/internal/httpx"
 	"github.com/gest-postgres/backend/internal/infra"
@@ -152,4 +153,98 @@ func (h *InfraHandler) RemoveVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type deployComposeInput struct {
+	Name    string `json:"name"`
+	Compose string `json:"compose"`
+}
+
+func (h *InfraHandler) DeployCompose(w http.ResponseWriter, r *http.Request) {
+	var in deployComposeInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	project, err := h.service.DeployCompose(r.Context(), in.Name, in.Compose)
+	if err != nil {
+		if project != nil {
+			httpx.WriteJSON(w, http.StatusUnprocessableEntity, project)
+			return
+		}
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, project)
+}
+
+func (h *InfraHandler) ListComposeProjects(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.ListComposeProjects(r.Context())
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, list)
+}
+
+func (h *InfraHandler) RemoveComposeProject(w http.ResponseWriter, r *http.Request) {
+	removeVolumes := r.URL.Query().Get("remove_volumes") == "true"
+	if err := h.service.RemoveComposeProject(r.Context(), r.PathValue("name"), removeVolumes); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type buildFromDockerfileInput struct {
+	Tag        string `json:"tag"`
+	Dockerfile string `json:"dockerfile"`
+}
+
+func (h *InfraHandler) BuildFromDockerfile(w http.ResponseWriter, r *http.Request) {
+	var in buildFromDockerfileInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	result, err := h.service.BuildFromDockerfile(r.Context(), in.Tag, in.Dockerfile)
+	if err != nil {
+		if result != nil {
+			httpx.WriteJSON(w, http.StatusUnprocessableEntity, result)
+			return
+		}
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, result)
+}
+
+// BuildFromContext recebe um upload multipart: campo "tag" + campo "context"
+// (arquivo .tar ou .tar.gz com o contexto de build inteiro, Dockerfile
+// incluso na raiz).
+func (h *InfraHandler) BuildFromContext(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(200 << 20); err != nil { // 200MB de limite
+		httpx.WriteError(w, http.StatusBadRequest, "upload inválido ou grande demais: "+err.Error())
+		return
+	}
+	tag := r.FormValue("tag")
+	file, header, err := r.FormFile("context")
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "arquivo de contexto (\"context\") é obrigatório: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	gzipped := strings.HasSuffix(header.Filename, ".gz") || strings.HasSuffix(header.Filename, ".tgz")
+
+	result, err := h.service.BuildFromContext(r.Context(), tag, file, gzipped)
+	if err != nil {
+		if result != nil {
+			httpx.WriteJSON(w, http.StatusUnprocessableEntity, result)
+			return
+		}
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, result)
 }

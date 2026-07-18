@@ -18,6 +18,13 @@ FROM alpine:3.21
 # só tinha até o pacote postgresql16-client, por isso o bump de versão da
 # imagem base.
 RUN apk add --no-cache ca-certificates postgresql17-client
+# docker-cli + docker-cli-compose: pra deploy via docker-compose.yml e build
+# via Dockerfile, o backend chama `docker compose`/`docker build` (via
+# os/exec) em vez de reimplementar o parser de compose ou o protocolo de
+# build na unha. DOCKER_HOST já aponta pro docker-socket-proxy (mesma env
+# var que o client Go usa), então o CLI fala com o Docker pelo mesmo caminho
+# mediado — nunca ganha acesso direto ao socket.
+RUN apk add --no-cache docker-cli docker-cli-compose
 COPY --from=build /out/api /usr/local/bin/api
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/api"]

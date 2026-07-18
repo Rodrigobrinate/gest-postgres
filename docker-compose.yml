@@ -14,6 +14,10 @@ volumes:
   # num volume nomeado, não bind mount, pelo mesmo motivo dos volumes dos
   # servidores gerenciados (sobrevive a recriação do container do backend).
   backups_data:
+  # Arquivos de docker-compose.yml/Dockerfile enviados pela tela de "Docker"
+  # (deploy via compose, build via Dockerfile) — mesmo raciocínio dos outros
+  # dois volumes acima, sobrevive a recriação do container do backend.
+  stacks_data:
 
 services:
   metadata-db:
@@ -46,6 +50,12 @@ services:
       POST: 1
       INFO: 1
       SYSTEM: 1
+      # BUILD: só pra `docker build`/`docker compose up --build` funcionarem
+      # (tela de Docker: build via Dockerfile). Categoria separada de EXEC —
+      # que continua desligada de propósito, nunca dá shell dentro de
+      # container gerenciado. Build de imagem não é a mesma coisa que
+      # executar comando num container já rodando.
+      BUILD: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [gestpg-internal]
@@ -67,6 +77,7 @@ services:
       # único, sem expor o resto da árvore do host pra dentro do container).
       - /etc:/hostfs:ro
       - backups_data:/backups
+      - stacks_data:/stacks
     depends_on:
       metadata-db:
         condition: service_healthy

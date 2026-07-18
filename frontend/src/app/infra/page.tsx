@@ -6,6 +6,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ContainersTab } from "@/components/infra/containers-tab";
 import { NetworksTab } from "@/components/infra/networks-tab";
 import { VolumesTab } from "@/components/infra/volumes-tab";
+import { ComposeTab } from "@/components/infra/compose-tab";
+import { BuildTab } from "@/components/infra/build-tab";
 
 export default function InfraPage() {
   return (
@@ -37,6 +39,8 @@ export default function InfraPage() {
           <TabsTrigger value="containers">Containers</TabsTrigger>
           <TabsTrigger value="networks">Redes</TabsTrigger>
           <TabsTrigger value="volumes">Volumes</TabsTrigger>
+          <TabsTrigger value="compose">Stacks</TabsTrigger>
+          <TabsTrigger value="build">Build</TabsTrigger>
         </TabsList>
 
         <TabsContent value="containers" className="pt-4">
@@ -47,6 +51,12 @@ export default function InfraPage() {
         </TabsContent>
         <TabsContent value="volumes" className="pt-4">
           <VolumesTab />
+        </TabsContent>
+        <TabsContent value="compose" className="pt-4">
+          <ComposeTab />
+        </TabsContent>
+        <TabsContent value="build" className="pt-4">
+          <BuildTab />
         </TabsContent>
       </Tabs>
     </div>
