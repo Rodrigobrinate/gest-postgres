@@ -111,6 +111,8 @@ Achado nessa leva: containers em host cgroup v2 reportam `blkio_stats` com `op` 
 
 Auto-descoberta (via botão "Procurar servidores") ganhou um segundo caminho de entrada: clicar direto numa linha da tabela de containers do dashboard, quando ela parece Postgres e ainda não é gerenciada (badge "adotar"), abre o mesmo formulário de cadastro. Containers do próprio stack (`metadata-db`, `backend`, `frontend`, `docker-socket-proxy`) são sempre excluídos dessa detecção mesmo quando a imagem bate na heurística — `metadata-db` É um Postgres de verdade, só que é o interno da plataforma, nunca deveria virar "servidor gerenciado" adotável.
 
+Todo gráfico (os 4 cards do dashboard e os 3 da aba Monitoramento de cada servidor: CPU/Memória/Conexões) agora é clicável — abre um modal com o gráfico ampliado e botões de período (5min/15min/30min/tudo). Importante: isso recorta o mesmo buffer em memória que já existe (~1h a 15s/amostra), não busca dado mais antigo no backend — não tem armazenamento de métricas de longo prazo no MVP, então "mudar o período" é só zoom dentro do que já foi coletado desde que o backend subiu.
+
 ---
 
 ## Backlog pós-MVP ("perfumarias")

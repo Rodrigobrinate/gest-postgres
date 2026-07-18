@@ -2,12 +2,31 @@
 
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
 import { api, type ContainerStat, type PlatformStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Cpu, MemoryStick, HardDrive, Network, PlugZap } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { RegisterDialog } from "./discover-servers-dialog";
+import { TimeRangeButtons, filterByRange } from "./timerange-buttons";
+
+function formatClockTime(ms: number) {
+  return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function zip(timestamps: number[], values: number[]) {
+  return timestamps.map((timestamp, i) => ({ timestamp, value: values[i] ?? 0 }));
+}
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(2)} TB`;
@@ -99,6 +118,11 @@ export function PlatformStatsCards() {
   const currentRxRate = rxSeries.length > 0 ? rxSeries[rxSeries.length - 1] : 0;
   const currentTxRate = txSeries.length > 0 ? txSeries[txSeries.length - 1] : 0;
 
+  const cpuPoints = zip(timestamps, cpuSeries);
+  const memPoints = zip(timestamps, memSeries);
+  const diskPoints = zip(timestamps, diskSeries);
+  const netPoints = zip(timestamps.slice(1), netSeries);
+
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-4 gap-4">
@@ -107,16 +131,18 @@ export function PlatformStatsCards() {
           label="CPU (todos os containers)"
           value={`${data.total_cpu_percent.toFixed(1)}%`}
           hint={`${data.containers.length} container(s)`}
-          series={cpuSeries}
+          points={cpuPoints}
           color="#2563eb"
+          formatValue={(v) => `${v.toFixed(1)}%`}
         />
         <SparkCard
           icon={<MemoryStick className="size-4" />}
           label="Memória"
           value={`${data.total_memory_used_mb.toFixed(0)} MB`}
           hint={`de ${data.total_memory_limit_mb.toFixed(0)} MB (${memPercent.toFixed(0)}%)`}
-          series={memSeries}
+          points={memPoints}
           color="#7c3aed"
+          formatValue={(v) => `${v.toFixed(0)} MB`}
         />
         <SparkCard
           icon={<HardDrive className="size-4" />}
@@ -127,16 +153,18 @@ export function PlatformStatsCards() {
               ? `${formatBytes(data.disk_used_bytes)} de ${formatBytes(data.disk_total_bytes)}`
               : "mount /hostfs indisponível"
           }
-          series={diskSeries}
+          points={diskPoints}
           color="#059669"
+          formatValue={formatBytes}
         />
         <SparkCard
           icon={<Network className="size-4" />}
           label="Rede"
           value={`↓${formatRate(currentRxRate)}`}
           hint={`↑${formatRate(currentTxRate)}`}
-          series={netSeries}
+          points={netPoints}
           color="#0891b2"
+          formatValue={formatRate}
         />
       </div>
 
@@ -257,29 +285,95 @@ function SparkCard({
   label,
   value,
   hint,
-  series,
+  points,
   color,
+  formatValue,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   hint?: string;
-  series: number[];
+  points: { timestamp: number; value: number }[];
   color: string;
+  formatValue: (v: number) => string;
 }) {
+  const [open, setOpen] = useState(false);
+  const [rangeMs, setRangeMs] = useState(Infinity);
+  const hasData = points.length >= 2;
+  const zoomed = filterByRange(points, rangeMs, (p) => p.timestamp);
+
   return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          {icon}
-          {label}
-        </p>
-        <p className="text-2xl font-semibold">{value}</p>
-        {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
-        <div className="mt-2 -mb-2 -ml-1">
-          <Sparkline data={series} color={color} />
-        </div>
-      </CardContent>
-    </Card>
+    <>
+      <Card
+        className={hasData ? "cursor-pointer transition-colors hover:bg-muted/40" : undefined}
+        onClick={() => hasData && setOpen(true)}
+        title={hasData ? "Clique pra ampliar e mudar o período" : undefined}
+      >
+        <CardContent className="p-4">
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            {icon}
+            {label}
+          </p>
+          <p className="text-2xl font-semibold">{value}</p>
+          {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+          <div className="mt-2 -mb-2 -ml-1">
+            <Sparkline data={points.map((p) => p.value)} color={color} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {open && (
+        <Dialog open onOpenChange={setOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{label}</DialogTitle>
+            </DialogHeader>
+            <TimeRangeButtons value={rangeMs} onChange={setRangeMs} />
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={zoomed} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                <XAxis
+                  dataKey="timestamp"
+                  tickFormatter={formatClockTime}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  axisLine={{ stroke: "var(--border)" }}
+                  tickLine={false}
+                  minTickGap={40}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={50}
+                />
+                <Tooltip
+                  labelFormatter={(t) => formatClockTime(Number(t))}
+                  formatter={(v) => [formatValue(Number(v)), label]}
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--popover)",
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke={color}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-muted-foreground text-xs">
+              Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período
+              acima recorta esse buffer, não busca dados mais antigos.
+            </p>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
