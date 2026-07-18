@@ -18,6 +18,16 @@ volumes:
   # (deploy via compose, build via Dockerfile) — mesmo raciocínio dos outros
   # dois volumes acima, sobrevive a recriação do container do backend.
   stacks_data:
+  # Compartilhado entre backend (escreve) e Traefik (lê via file provider) —
+  # nome fixo (não prefixado pelo projeto do compose) pelo mesmo motivo das
+  # redes gestpg-*: o backend cria o container do Traefik via Docker API
+  # direto, então precisa saber o nome exato do volume sem depender de como
+  # o compose prefixaria por padrão.
+  traefik_dynamic_data:
+    name: gestpg-traefik-dynamic
+  # Só o Traefik usa — certificados do Let's Encrypt (acme.json).
+  traefik_letsencrypt_data:
+    name: gestpg-traefik-letsencrypt
 
 services:
   metadata-db:
@@ -78,6 +88,7 @@ services:
       - /etc:/hostfs:ro
       - backups_data:/backups
       - stacks_data:/stacks
+      - traefik_dynamic_data:/traefik-dynamic
     depends_on:
       metadata-db:
         condition: service_healthy

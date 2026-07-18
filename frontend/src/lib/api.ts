@@ -476,6 +476,28 @@ export interface BuildResult {
   success: boolean;
 }
 
+export interface TraefikStatus {
+  enabled: boolean;
+  running: boolean;
+  acme_email?: string;
+}
+
+export interface ProxyRoute {
+  id: string;
+  domain: string;
+  target_container: string;
+  target_port: number;
+  tls: boolean;
+  created_at: string;
+}
+
+export interface CreateProxyRouteInput {
+  domain: string;
+  target_container: string;
+  target_port: number;
+  tls: boolean;
+}
+
 export type BackupStorageKind = "local" | "gdrive";
 
 export interface Backup {
@@ -1201,6 +1223,28 @@ export const api = {
     }
     return res.json();
   },
+
+  traefikStatus: () => request<TraefikStatus>(`/api/v1/infra/traefik`),
+
+  enableTraefik: (acmeEmail: string) =>
+    request<TraefikStatus>(`/api/v1/infra/traefik/enable`, {
+      method: "POST",
+      body: JSON.stringify({ acme_email: acmeEmail }),
+    }),
+
+  disableTraefik: () =>
+    request<{ status: string }>(`/api/v1/infra/traefik/disable`, { method: "POST" }),
+
+  listProxyRoutes: () => request<ProxyRoute[]>(`/api/v1/infra/proxy-routes`),
+
+  createProxyRoute: (input: CreateProxyRouteInput) =>
+    request<ProxyRoute>(`/api/v1/infra/proxy-routes`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  removeProxyRoute: (id: string) =>
+    request<void>(`/api/v1/infra/proxy-routes/${id}`, { method: "DELETE" }),
 };
 
 export { ApiError };

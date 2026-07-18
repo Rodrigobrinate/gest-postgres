@@ -248,3 +248,69 @@ func (h *InfraHandler) BuildFromContext(w http.ResponseWriter, r *http.Request) 
 	}
 	httpx.WriteJSON(w, http.StatusOK, result)
 }
+
+func (h *InfraHandler) TraefikStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := h.service.TraefikStatus(r.Context())
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, status)
+}
+
+type enableTraefikInput struct {
+	AcmeEmail string `json:"acme_email"`
+}
+
+func (h *InfraHandler) EnableTraefik(w http.ResponseWriter, r *http.Request) {
+	var in enableTraefikInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	status, err := h.service.EnableTraefik(r.Context(), in.AcmeEmail)
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, status)
+}
+
+func (h *InfraHandler) DisableTraefik(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DisableTraefik(r.Context()); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *InfraHandler) ListProxyRoutes(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.ListProxyRoutes(r.Context())
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, list)
+}
+
+func (h *InfraHandler) CreateProxyRoute(w http.ResponseWriter, r *http.Request) {
+	var in infra.CreateProxyRouteInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	route, err := h.service.CreateProxyRoute(r.Context(), in)
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, route)
+}
+
+func (h *InfraHandler) DeleteProxyRoute(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteProxyRoute(r.Context(), r.PathValue("routeId")); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
