@@ -89,6 +89,11 @@ services:
       - backups_data:/backups
       - stacks_data:/stacks
       - traefik_dynamic_data:/traefik-dynamic
+      # firewall-agent roda no HOST via systemd (ver setup.sh), nunca em
+      # container — ufw mexe no namespace de rede do host. Esse socket
+      # precisa já existir (agente já rodando) ANTES desse `up`, senão o
+      # Docker cria um diretório vazio no lugar em vez de repassar o socket.
+      - /run/gestpg-firewall.sock:/run/gestpg-firewall.sock
     depends_on:
       metadata-db:
         condition: service_healthy

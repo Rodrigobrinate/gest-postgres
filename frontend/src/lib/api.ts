@@ -498,6 +498,12 @@ export interface CreateProxyRouteInput {
   tls: boolean;
 }
 
+export interface FirewallRule {
+  port: number;
+  proto: "tcp" | "udp";
+  action: "allow" | "deny";
+}
+
 export type BackupStorageKind = "local" | "gdrive";
 
 export interface Backup {
@@ -1245,6 +1251,17 @@ export const api = {
 
   removeProxyRoute: (id: string) =>
     request<void>(`/api/v1/infra/proxy-routes/${id}`, { method: "DELETE" }),
+
+  listFirewallRules: () => request<FirewallRule[]>(`/api/v1/infra/firewall-rules`),
+
+  addFirewallRule: (port: number, proto: "tcp" | "udp", action: "allow" | "deny") =>
+    request<{ status: string }>(`/api/v1/infra/firewall-rules`, {
+      method: "POST",
+      body: JSON.stringify({ port, proto, action }),
+    }),
+
+  removeFirewallRule: (port: number, proto: "tcp" | "udp") =>
+    request<void>(`/api/v1/infra/firewall-rules/${port}/${proto}`, { method: "DELETE" }),
 };
 
 export { ApiError };

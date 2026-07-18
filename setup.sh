@@ -144,6 +144,61 @@ for v in 13 14 15 16 17; do
 	ok "gestpg-postgres:${v} buildada"
 done
 
+# ---------- 6.5. firewall-agent (ufw) ----------
+# Roda no HOST via systemd, NUNCA em container — ufw mexe no namespace de
+# rede do host, não tem como isso funcionar de dentro de um container sem
+# dar privilégio que quebraria o modelo de segurança do resto da plataforma
+# (o backend nunca toca o host direto, só via mediadores estreitos — mesmo
+# raciocínio do docker-socket-proxy). Escuta só num socket Unix local
+# (/run/gestpg-firewall.sock), nunca porta de rede. Superfície mínima de
+# propósito: só lista/libera/remove regra — nunca expõe ufw
+# enable/disable/reset, e a porta 22/tcp nunca pode ser alterada por essa
+# API (travado no código do agente, não só aqui).
+log "buildando e instalando firewall-agent (systemd, roda fora do Docker)"
+"$DOCKER" run --rm \
+	-v "$SCRIPT_DIR/firewall-agent:/src" \
+	-w /src \
+	-e GOTOOLCHAIN=auto \
+	-e CGO_ENABLED=0 \
+	golang:1.25-alpine \
+	go build -o /src/gestpg-firewall-agent .
+install -m 0755 firewall-agent/gestpg-firewall-agent /usr/local/bin/gestpg-firewall-agent
+rm -f firewall-agent/gestpg-firewall-agent
+
+cat > /etc/systemd/system/gestpg-firewall-agent.service <<'UNIT'
+[Unit]
+Description=gest-postgres firewall agent (ufw via socket Unix local)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/gestpg-firewall-agent
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now gestpg-firewall-agent
+ok "firewall-agent ativo (/run/gestpg-firewall.sock)"
+
+# ufw: instala + libera 22/tcp ANTES de habilitar — ORDEM CRÍTICA, nunca
+# inverter (habilitar antes de liberar SSH tranca acesso remoto ao servidor
+# pra sempre, só recuperável pelo console web da provedora).
+if ! command -v ufw >/dev/null 2>&1; then
+	log "instalando ufw"
+	apt-get install -y ufw
+fi
+ufw allow 22/tcp >/dev/null
+if ufw status | grep -q "Status: active"; then
+	ok "ufw já ativo"
+else
+	log "habilitando ufw (22/tcp já liberado antes, SSH nunca fica bloqueado)"
+	ufw --force enable
+	ok "ufw ativo"
+fi
+
 # ---------- 7. sobe o stack ----------
 log "subindo o stack (docker compose up --build -d)"
 "$DOCKER" compose up --build -d

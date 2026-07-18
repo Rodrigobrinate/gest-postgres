@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gest-postgres/backend/internal/httpx"
@@ -309,6 +310,41 @@ func (h *InfraHandler) CreateProxyRoute(w http.ResponseWriter, r *http.Request) 
 
 func (h *InfraHandler) DeleteProxyRoute(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.DeleteProxyRoute(r.Context(), r.PathValue("routeId")); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *InfraHandler) ListFirewallRules(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.ListFirewallRules(r.Context())
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, list)
+}
+
+func (h *InfraHandler) AddFirewallRule(w http.ResponseWriter, r *http.Request) {
+	var in infra.AddFirewallRuleInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.AddFirewallRule(r.Context(), in); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *InfraHandler) RemoveFirewallRule(w http.ResponseWriter, r *http.Request) {
+	port, err := strconv.Atoi(r.PathValue("port"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "porta inválida")
+		return
+	}
+	if err := h.service.RemoveFirewallRule(r.Context(), port, r.PathValue("proto")); err != nil {
 		writeInfraError(w, err)
 		return
 	}
