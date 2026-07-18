@@ -16,6 +16,7 @@ import (
 	"github.com/gest-postgres/backend/internal/crypto"
 	"github.com/gest-postgres/backend/internal/db"
 	"github.com/gest-postgres/backend/internal/docker"
+	"github.com/gest-postgres/backend/internal/infra"
 	"github.com/gest-postgres/backend/internal/server"
 )
 
@@ -72,7 +73,9 @@ func run() error {
 	go serverService.RunPlatformHistoryCollector(ctx, 15*time.Second)
 	go serverService.RunBackupSweep(ctx, 1*time.Minute)
 
-	router := api.NewRouter(serverService)
+	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName)
+
+	router := api.NewRouter(serverService, infraService)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

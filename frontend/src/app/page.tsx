@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { CreateServerDialog } from "@/components/servers/create-server-dialog";
 import { DiscoverServersDialog } from "@/components/servers/discover-servers-dialog";
 import { PlatformStatsCards } from "@/components/servers/platform-stats-cards";
 import { ServerTable } from "@/components/servers/server-table";
-import { Database } from "lucide-react";
+import { Boxes, Database } from "lucide-react";
 
 export default function Home() {
   return (
@@ -21,6 +23,10 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" render={<Link href="/infra" />}>
+            <Boxes className="size-4" />
+            Docker
+          </Button>
           <DiscoverServersDialog />
           <CreateServerDialog />
         </div>

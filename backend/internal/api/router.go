@@ -4,10 +4,11 @@ import (
 	"net/http"
 
 	"github.com/gest-postgres/backend/internal/httpx"
+	"github.com/gest-postgres/backend/internal/infra"
 	"github.com/gest-postgres/backend/internal/server"
 )
 
-func NewRouter(serverService *server.Service) http.Handler {
+func NewRouter(serverService *server.Service, infraService *infra.Service) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +89,21 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("GET /api/v1/gdrive/auth-url", gdrive.AuthURL)
 	mux.HandleFunc("GET /api/v1/gdrive/callback", gdrive.Callback)
 	mux.HandleFunc("POST /api/v1/gdrive/disconnect", gdrive.Disconnect)
+
+	infraHandler := NewInfraHandler(infraService)
+	mux.HandleFunc("GET /api/v1/infra/containers", infraHandler.ListContainers)
+	mux.HandleFunc("POST /api/v1/infra/containers", infraHandler.CreateContainer)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/start", infraHandler.StartContainer)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/stop", infraHandler.StopContainer)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/restart", infraHandler.RestartContainer)
+	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}", infraHandler.RemoveContainer)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/logs", infraHandler.ContainerLogs)
+	mux.HandleFunc("GET /api/v1/infra/networks", infraHandler.ListNetworks)
+	mux.HandleFunc("POST /api/v1/infra/networks", infraHandler.CreateNetwork)
+	mux.HandleFunc("DELETE /api/v1/infra/networks/{networkId}", infraHandler.RemoveNetwork)
+	mux.HandleFunc("GET /api/v1/infra/volumes", infraHandler.ListVolumes)
+	mux.HandleFunc("POST /api/v1/infra/volumes", infraHandler.CreateVolume)
+	mux.HandleFunc("DELETE /api/v1/infra/volumes/{volumeName}", infraHandler.RemoveVolume)
 	mux.HandleFunc("GET /api/v1/servers/{id}/hba-rules", detail.ListHbaRules)
 	mux.HandleFunc("POST /api/v1/servers/{id}/hba-rules", detail.AddHbaRule)
 	mux.HandleFunc("POST /api/v1/servers/{id}/hba-rules/delete", detail.DeleteHbaRule)

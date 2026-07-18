@@ -426,6 +426,40 @@ export interface CreateRetentionPolicyInput {
   action: "archive" | "delete";
 }
 
+export interface InfraContainer {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  ports: string[];
+  networks: string[];
+  labels: Record<string, string>;
+  project?: string;
+}
+
+export interface CreateContainerFromImageInput {
+  name: string;
+  image: string;
+  env: Record<string, string>;
+  ports: Record<string, number>;
+  network?: string;
+}
+
+export interface InfraNetwork {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+}
+
+export interface InfraVolume {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  size_bytes?: number;
+}
+
 export type BackupStorageKind = "local" | "gdrive";
 
 export interface Backup {
@@ -1049,6 +1083,51 @@ export const api = {
   gdriveAuthUrl: () => request<{ url: string }>(`/api/v1/gdrive/auth-url`),
 
   gdriveDisconnect: () => request<{ status: string }>(`/api/v1/gdrive/disconnect`, { method: "POST" }),
+
+  listInfraContainers: () => request<InfraContainer[]>(`/api/v1/infra/containers`),
+
+  createInfraContainer: (input: CreateContainerFromImageInput) =>
+    request<{ id: string }>(`/api/v1/infra/containers`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  startInfraContainer: (id: string) =>
+    request<{ status: string }>(`/api/v1/infra/containers/${id}/start`, { method: "POST" }),
+
+  stopInfraContainer: (id: string) =>
+    request<{ status: string }>(`/api/v1/infra/containers/${id}/stop`, { method: "POST" }),
+
+  restartInfraContainer: (id: string) =>
+    request<{ status: string }>(`/api/v1/infra/containers/${id}/restart`, { method: "POST" }),
+
+  removeInfraContainer: (id: string) =>
+    request<void>(`/api/v1/infra/containers/${id}`, { method: "DELETE" }),
+
+  infraContainerLogs: (id: string, tail = 500) =>
+    request<{ logs: string }>(`/api/v1/infra/containers/${id}/logs?tail=${tail}`),
+
+  listInfraNetworks: () => request<InfraNetwork[]>(`/api/v1/infra/networks`),
+
+  createInfraNetwork: (name: string) =>
+    request<{ status: string }>(`/api/v1/infra/networks`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  removeInfraNetwork: (id: string) =>
+    request<void>(`/api/v1/infra/networks/${id}`, { method: "DELETE" }),
+
+  listInfraVolumes: () => request<InfraVolume[]>(`/api/v1/infra/volumes`),
+
+  createInfraVolume: (name: string) =>
+    request<{ status: string }>(`/api/v1/infra/volumes`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  removeInfraVolume: (name: string) =>
+    request<void>(`/api/v1/infra/volumes/${name}`, { method: "DELETE" }),
 };
 
 export { ApiError };
