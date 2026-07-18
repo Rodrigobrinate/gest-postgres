@@ -42,6 +42,8 @@ Todo requisito do MVP abaixo é um checkbox. Ao implementar:
 
 Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → `sudo ./setup.sh` → criar/start/stop/restart/excluir servidor pela UI, Postgres realmente aceitando conexão). Ver histórico de commits a partir de `f5a557d` até `ee97d0e`.
 
+**Além do MVP**: auto-descoberta de Postgres rodando em containers Docker (fora do MVP original, mas dentro do que a arquitetura atual consegue — sem acesso ao host além da API Docker, então Postgres nativo fora de container fica fora de alcance). Botão "Procurar servidores" na tela inicial lista containers que parecem Postgres e ainda não estão cadastrados; "Cadastrar" pede credenciais reais e só salva depois de confirmar conexão de verdade (`docker network connect` na rede gerenciada se precisar, depois um `SELECT` real) — nada fica registrado com senha errada. Não cria container/volume novo, só passa a gerenciar o que já existe.
+
 ### Configuração do Postgres (subset essencial, não tudo de REQUISITOS.md §4)
 - [x] ~~Form com os parâmetros mais impactantes: `max_connections`, `shared_buffers`, `work_mem`, `maintenance_work_mem`, `effective_cache_size`, `log_min_duration_statement`~~
 - [x] ~~Presets calculam esses valores automaticamente a partir do preset de recursos~~

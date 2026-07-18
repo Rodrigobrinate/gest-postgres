@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateServerDialog } from "@/components/servers/create-server-dialog";
+import { DiscoverServersDialog } from "@/components/servers/discover-servers-dialog";
 import { ServerTable } from "@/components/servers/server-table";
 import { Database } from "lucide-react";
 
@@ -18,7 +19,10 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <CreateServerDialog />
+        <div className="flex items-center gap-2">
+          <DiscoverServersDialog />
+          <CreateServerDialog />
+        </div>
       </header>
 
       <Card>

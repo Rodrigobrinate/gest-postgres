@@ -14,6 +14,10 @@ func NewRouter(serverService *server.Service) http.Handler {
 		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	discovery := NewDiscoveryHandler(serverService)
+	mux.HandleFunc("GET /api/v1/discover", discovery.Discover)
+	mux.HandleFunc("POST /api/v1/discover/{containerId}/register", discovery.Register)
+
 	servers := NewServersHandler(serverService)
 	mux.HandleFunc("POST /api/v1/servers", servers.Create)
 	mux.HandleFunc("GET /api/v1/servers", servers.List)

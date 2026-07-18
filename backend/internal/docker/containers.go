@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -138,6 +139,48 @@ func (c *Client) InspectContainer(ctx context.Context, containerID string) (Cont
 	}, nil
 }
 
+// DiscoveryDetail junta o que a auto-descoberta precisa saber de um container
+// que a plataforma não criou — em que redes ele já está, se tem porta 5432
+// publicada, e se o data dir tá num volume nomeado (pra registrar de forma
+// consistente com o resto do modelo, mesmo sem ter sido a plataforma que
+// criou o volume).
+type DiscoveryDetail struct {
+	Name       string // sem a barra inicial que o Docker usa
+	Image      string
+	Networks   []string
+	HostPort   int // porta publicada do 5432/tcp; 0 se não publicado
+	VolumeName string
+}
+
+func (c *Client) InspectForDiscovery(ctx context.Context, containerID string) (DiscoveryDetail, error) {
+	info, err := c.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return DiscoveryDetail{}, fmt.Errorf("inspecionando container %s: %w", containerID, err)
+	}
+
+	detail := DiscoveryDetail{
+		Name:  strings.TrimPrefix(info.Name, "/"),
+		Image: info.Config.Image,
+	}
+	if info.NetworkSettings != nil {
+		for netName := range info.NetworkSettings.Networks {
+			detail.Networks = append(detail.Networks, netName)
+		}
+	}
+	if info.HostConfig != nil {
+		if bindings, ok := info.HostConfig.PortBindings["5432/tcp"]; ok && len(bindings) > 0 {
+			fmt.Sscanf(bindings[0].HostPort, "%d", &detail.HostPort)
+		}
+	}
+	for _, m := range info.Mounts {
+		if m.Destination == "/var/lib/postgresql/data" && m.Type == "volume" {
+			detail.VolumeName = m.Name
+			break
+		}
+	}
+	return detail, nil
+}
+
 // ListManagedContainers retorna todos os containers com a label gestpg.managed=true,
 // usado pra reconciliar estado na inicialização (containers que existem no Docker
 // mas cujo status no metadata DB ficou desatualizado).
@@ -175,16 +218,7 @@ func (c *Client) ConnectNetwork(ctx context.Context, networkName, containerID st
 }
 
 func isAlreadyConnectedErr(err error) bool {
-	return err != nil && (contains(err.Error(), "already exists in network") || contains(err.Error(), "already attached"))
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return err != nil && (strings.Contains(err.Error(), "already exists in network") || strings.Contains(err.Error(), "already attached"))
 }
 
 // WaitHealthy faz polling simples do status até o container reportar "running",

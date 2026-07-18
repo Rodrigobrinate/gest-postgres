@@ -288,6 +288,21 @@ export interface ExplainResult {
   execution_time_ms?: number;
 }
 
+export interface DiscoveredContainer {
+  container_id: string;
+  name: string;
+  image: string;
+  state: string;
+  ports: string[];
+}
+
+export interface RegisterDiscoveredInput {
+  name: string;
+  username: string;
+  password: string;
+  database_name: string;
+}
+
 export interface LogLine {
   timestamp: string;
   text: string;
@@ -463,6 +478,14 @@ export const api = {
   deleteServer: (id: string, keepVolume: boolean) =>
     request<void>(`/api/v1/servers/${id}?keep_volume=${keepVolume}`, {
       method: "DELETE",
+    }),
+
+  discover: () => request<DiscoveredContainer[]>(`/api/v1/discover`),
+
+  registerDiscovered: (containerId: string, input: RegisterDiscoveredInput) =>
+    request<ManagedServer>(`/api/v1/discover/${containerId}/register`, {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
 
   getPassword: (id: string) => request<{ password: string }>(`/api/v1/servers/${id}/password`),
