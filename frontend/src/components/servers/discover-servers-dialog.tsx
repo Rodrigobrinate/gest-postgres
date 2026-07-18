@@ -99,12 +99,12 @@ export function DiscoverServersDialog() {
   );
 }
 
-function RegisterDialog({
+export function RegisterDialog({
   container,
   onClose,
   onRegistered,
 }: {
-  container: DiscoveredContainer;
+  container: Pick<DiscoveredContainer, "container_id" | "name">;
   onClose: () => void;
   onRegistered: () => void;
 }) {

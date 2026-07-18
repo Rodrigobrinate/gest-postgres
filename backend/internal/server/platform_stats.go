@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ type ContainerStat struct {
 	Name            string  `json:"name"`
 	Image           string  `json:"image"`
 	IsManaged       bool    `json:"is_managed"`
+	Adoptable       bool    `json:"adoptable"` // parece Postgres, não gerenciado ainda, e não é container do próprio stack — dá pra clicar e cadastrar
 	ServerID        string  `json:"server_id,omitempty"`
 	ServerName      string  `json:"server_name,omitempty"`
 	CPUPercent      float64 `json:"cpu_percent"`
@@ -25,7 +27,7 @@ type ContainerStat struct {
 	BlockWriteBytes int64   `json:"block_write_bytes"`
 	BlockReadOps    int64   `json:"block_read_ops"`
 	BlockWriteOps   int64   `json:"block_write_ops"`
-	VolumeSizeBytes int64   `json:"volume_size_bytes,omitempty"` // tamanho do volume de dados (só gerenciados)
+	VolumeSizeBytes int64   `json:"volume_size_bytes,omitempty"` // "peso" do container: soma dos volumes nomeados montados, ou (sem volume) a camada gravável
 }
 
 // PlatformStats agrega TODOS os containers Docker do host (não só os
@@ -72,16 +74,26 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 		}
 	}
 
-	// Busca de uma vez só, fora do loop de containers — dá tanto o agregado
-	// (imagens+containers+volumes) quanto o tamanho de cada volume nomeado
-	// individualmente, que é o "peso no banco" de cada Postgres gerenciado.
+	// Busca de uma vez só, fora do loop de containers — dá o agregado
+	// (imagens+containers+volumes), o tamanho de cada volume nomeado
+	// individualmente, e a camada gravável (SizeRw) de cada container. Isso
+	// cobre "peso" pra QUALQUER container, não só Postgres gerenciado: quem
+	// tem volume nomeado usa a soma dos volumes montados; quem não tem (ex:
+	// container sem persistência dedicada) cai pro tamanho da própria
+	// camada gravável, que é o proxy honesto de "quanto esse container
+	// específico gravou" sem contar as camadas de imagem compartilhadas
+	// (SizeRootFs infla isso porque conta a imagem base inteira).
 	du, duErr := s.docker.DiskUsage(ctx)
 	volumeSizes := make(map[string]int64)
+	containerRwSizes := make(map[string]int64)
 	if duErr == nil {
 		for _, v := range du.Volumes {
 			if v.UsageData != nil {
 				volumeSizes[v.Name] = v.UsageData.Size
 			}
+		}
+		for _, dc := range du.Containers {
+			containerRwSizes[dc.ID] = dc.SizeRw
 		}
 	}
 
@@ -117,8 +129,36 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 				cs.IsManaged = true
 				cs.ServerID = srv.ID
 				cs.ServerName = srv.Name
-				cs.VolumeSizeBytes = volumeSizes[srv.VolumeName]
 			}
+
+			if !cs.IsManaged && !ownComposeServices[c.Labels["com.docker.compose.service"]] {
+				ports := make([]string, 0, len(c.Ports))
+				for _, p := range c.Ports {
+					if p.PublicPort > 0 {
+						ports = append(ports, fmt.Sprintf("%d->%d/%s", p.PublicPort, p.PrivatePort, p.Type))
+					} else {
+						ports = append(ports, fmt.Sprintf("%d/%s", p.PrivatePort, p.Type))
+					}
+				}
+				cs.Adoptable = looksLikePostgres(c.Image, ports)
+			}
+
+			var volTotal int64
+			var hasVolume bool
+			for _, m := range c.Mounts {
+				if m.Type == "volume" && m.Name != "" {
+					if sz, ok := volumeSizes[m.Name]; ok {
+						volTotal += sz
+						hasVolume = true
+					}
+				}
+			}
+			if hasVolume {
+				cs.VolumeSizeBytes = volTotal
+			} else if sz, ok := containerRwSizes[c.ID]; ok {
+				cs.VolumeSizeBytes = sz
+			}
+
 			results[i] = cs
 		}()
 	}

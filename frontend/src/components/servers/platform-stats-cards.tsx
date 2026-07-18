@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ContainerStat, type PlatformStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Cpu, MemoryStick, HardDrive, Network } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, Network, PlugZap } from "lucide-react";
 import { Sparkline } from "./sparkline";
+import { RegisterDialog } from "./discover-servers-dialog";
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(2)} TB`;
@@ -33,6 +34,9 @@ function toRateSeries(values: number[], timestamps: number[]) {
 }
 
 export function PlatformStatsCards() {
+  const queryClient = useQueryClient();
+  const [adopting, setAdopting] = useState<ContainerStat | null>(null);
+
   const { data, isLoading } = useQuery({
     queryKey: ["platform-stats"],
     queryFn: () => api.platformStats(),
@@ -151,7 +155,7 @@ export function PlatformStatsCards() {
                     <th className="px-4 py-2 text-left font-normal">Nome</th>
                     <th className="px-4 py-2 text-right font-normal">CPU</th>
                     <th className="px-4 py-2 text-right font-normal">Memória</th>
-                    <th className="px-4 py-2 text-right font-normal">Peso no banco</th>
+                    <th className="px-4 py-2 text-right font-normal">Peso do container</th>
                     <th className="px-4 py-2 text-right font-normal">I/O disco (leitura/escrita)</th>
                     <th className="px-4 py-2 text-right font-normal">Rede (acumulado)</th>
                   </tr>
@@ -160,11 +164,26 @@ export function PlatformStatsCards() {
                   {data.containers.map((c) => {
                     const prev = previous.get(c.container_id);
                     return (
-                      <tr key={c.container_id} className="border-b last:border-0">
+                      <tr
+                        key={c.container_id}
+                        className={
+                          c.adoptable
+                            ? "hover:bg-muted/50 border-b last:border-0 cursor-pointer"
+                            : "border-b last:border-0"
+                        }
+                        onClick={() => c.adoptable && setAdopting(c)}
+                        title={c.adoptable ? "Clique pra tornar esse container um servidor gerenciado" : undefined}
+                      >
                         <td className="px-4 py-2">
                           <div className="flex items-center gap-2">
                             <span className="truncate font-mono">{c.server_name ?? c.name}</span>
                             {c.is_managed && <Badge variant="outline">gerenciado</Badge>}
+                            {c.adoptable && (
+                              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                                <PlugZap className="size-3" />
+                                adotar
+                              </Badge>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-2 text-right font-mono text-xs">
@@ -198,6 +217,18 @@ export function PlatformStatsCards() {
           )}
         </CardContent>
       </Card>
+
+      {adopting && (
+        <RegisterDialog
+          container={{ container_id: adopting.container_id, name: adopting.server_name ?? adopting.name }}
+          onClose={() => setAdopting(null)}
+          onRegistered={() => {
+            setAdopting(null);
+            queryClient.invalidateQueries({ queryKey: ["servers"] });
+            queryClient.invalidateQueries({ queryKey: ["platform-stats"] });
+          }}
+        />
+      )}
     </div>
   );
 }

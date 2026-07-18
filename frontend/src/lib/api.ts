@@ -299,6 +299,7 @@ export interface ContainerStat {
   name: string;
   image: string;
   is_managed: boolean;
+  adoptable: boolean;
   server_id?: string;
   server_name?: string;
   cpu_percent: number;

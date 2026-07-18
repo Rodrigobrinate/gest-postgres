@@ -43,6 +43,14 @@ export function RetentionPolicies({ serverId, database }: { serverId: string; da
   const [maxAgeDays, setMaxAgeDays] = useState(365);
   const [action, setAction] = useState<"archive" | "delete">("archive");
 
+  const { data: allTables } = useQuery({
+    queryKey: ["servers", serverId, "tables", database],
+    queryFn: () => api.listTables(serverId, database),
+    enabled: open,
+  });
+  const schemas = Array.from(new Set((allTables ?? []).map((t) => t.schema))).sort();
+  const tablesInSchema = (allTables ?? []).filter((t) => t.schema === schema);
+
   const create = useMutation({
     mutationFn: () =>
       api.createRetentionPolicy(serverId, {
@@ -112,11 +120,40 @@ export function RetentionPolicies({ serverId, database }: { serverId: string; da
                 <div className="grid grid-cols-[1fr_2fr] gap-3">
                   <div className="grid gap-1.5">
                     <Label>Schema</Label>
-                    <Input value={schema} onChange={(e) => setSchema(e.target.value)} />
+                    <Select
+                      value={schema}
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        setSchema(v);
+                        setTable("");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(schemas.length > 0 ? schemas : [schema]).map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-1.5">
                     <Label>Tabela</Label>
-                    <Input value={table} onChange={(e) => setTable(e.target.value)} />
+                    <Select value={table} onValueChange={(v) => v && setTable(v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={tablesInSchema.length === 0 ? `Nenhuma tabela em "${schema}"` : "Selecione"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tablesInSchema.map((t) => (
+                          <SelectItem key={t.name} value={t.name}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
