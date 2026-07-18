@@ -10,6 +10,10 @@ networks:
 
 volumes:
   metadata_db_data:
+  # Arquivos de backup (pg_dump) quando o storage escolhido é "local" — fica
+  # num volume nomeado, não bind mount, pelo mesmo motivo dos volumes dos
+  # servidores gerenciados (sobrevive a recriação do container do backend).
+  backups_data:
 
 services:
   metadata-db:
@@ -62,6 +66,7 @@ services:
       # inteira, só /etc (mesmo filesystem que / em qualquer droplet de disco
       # único, sem expor o resto da árvore do host pra dentro do container).
       - /etc:/hostfs:ro
+      - backups_data:/backups
     depends_on:
       metadata-db:
         condition: service_healthy

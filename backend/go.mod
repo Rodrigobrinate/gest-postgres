@@ -20,6 +20,11 @@ require (
 require github.com/pkg/errors v0.9.1 // indirect
 
 require (
+	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sys v0.15.0
+)
+
+require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/distribution/reference v0.0.0-00010101000000-000000000000 // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
@@ -34,7 +39,6 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect

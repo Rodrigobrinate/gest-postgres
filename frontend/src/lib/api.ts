@@ -426,6 +426,60 @@ export interface CreateRetentionPolicyInput {
   action: "archive" | "delete";
 }
 
+export type BackupStorageKind = "local" | "gdrive";
+
+export interface Backup {
+  id: string;
+  server_id: string;
+  policy_id?: string;
+  database_name: string;
+  storage: BackupStorageKind;
+  filename: string;
+  size_bytes?: number;
+  status: "running" | "completed" | "failed";
+  error?: string;
+  started_at: string;
+  completed_at?: string;
+}
+
+export interface BackupPolicy {
+  id: string;
+  server_id: string;
+  database_name: string;
+  storage: BackupStorageKind;
+  frequency: "daily" | "weekly";
+  weekday?: number;
+  time_of_day: string;
+  retention_count: number;
+  enabled: boolean;
+  last_run_at: string | null;
+  last_run_status: string;
+  last_run_error: string;
+  created_at: string;
+}
+
+export interface CreateBackupPolicyInput {
+  database_name: string;
+  storage: BackupStorageKind;
+  frequency: "daily" | "weekly";
+  weekday?: number | null;
+  time_of_day: string;
+  retention_count: number;
+}
+
+export interface RestoreBackupInput {
+  target_database?: string;
+  create_new?: boolean;
+  new_database_name?: string;
+}
+
+export interface GDriveStatus {
+  configured: boolean;
+  connected: boolean;
+  account_email?: string;
+  connected_at?: string;
+}
+
 export interface TuningSuggestion {
   param: string;
   current_value: string;
@@ -941,6 +995,60 @@ export const api = {
       `/api/v1/servers/${id}/indexes/${encodeURIComponent(schema)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
       { method: "DELETE" }
     ),
+
+  listBackups: (id: string) => request<Backup[]>(`/api/v1/servers/${id}/backups`),
+
+  createBackup: (id: string, database: string, storage: BackupStorageKind) =>
+    request<Backup>(`/api/v1/servers/${id}/backups`, {
+      method: "POST",
+      body: JSON.stringify({ database, storage }),
+    }),
+
+  deleteBackup: (id: string, backupId: string) =>
+    request<void>(`/api/v1/servers/${id}/backups/${backupId}`, { method: "DELETE" }),
+
+  downloadBackupUrl: (id: string, backupId: string) =>
+    `${API_URL}/api/v1/servers/${id}/backups/${backupId}/download`,
+
+  restoreBackup: (id: string, backupId: string, input: RestoreBackupInput) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/backups/${backupId}/restore`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  listBackupPolicies: (id: string) => request<BackupPolicy[]>(`/api/v1/servers/${id}/backup-policies`),
+
+  createBackupPolicy: (id: string, input: CreateBackupPolicyInput) =>
+    request<BackupPolicy>(`/api/v1/servers/${id}/backup-policies`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteBackupPolicy: (id: string, policyId: string) =>
+    request<void>(`/api/v1/servers/${id}/backup-policies/${policyId}`, { method: "DELETE" }),
+
+  setBackupPolicyEnabled: (id: string, policyId: string, enabled: boolean) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/backup-policies/${policyId}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
+  runBackupPolicy: (id: string, policyId: string) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/backup-policies/${policyId}/run`, {
+      method: "POST",
+    }),
+
+  gdriveStatus: () => request<GDriveStatus>(`/api/v1/gdrive/status`),
+
+  setGDriveConfig: (clientId: string, clientSecret: string) =>
+    request<{ status: string }>(`/api/v1/gdrive/config`, {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    }),
+
+  gdriveAuthUrl: () => request<{ url: string }>(`/api/v1/gdrive/auth-url`),
+
+  gdriveDisconnect: () => request<{ status: string }>(`/api/v1/gdrive/disconnect`, { method: "POST" }),
 };
 
 export { ApiError };

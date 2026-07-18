@@ -104,11 +104,23 @@ Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — abas:
 Todos os itens acima testados via curl direto no droplet (criar/listar/refresh/excluir de cada tipo de objeto) e limpos depois. Ver histórico de commits recentes pro detalhe de cada leva.
 
 ### Backup / Restore
-- [ ] Backup manual sob demanda (`pg_dump`, formato custom)
-- [ ] Rotina agendada simples (cron básico: diário/semanal, horário)
-- [ ] Storage local only (sem Google Drive/S3 no MVP)
-- [ ] Restore de backup (sobrescrever servidor original ou criar novo)
-- [ ] Retenção simples: manter últimos N backups
+- [x] ~~Backup manual sob demanda (`pg_dump`, formato custom)~~ — aba "Backup" de cada servidor
+- [x] ~~Rotina agendada simples (cron básico: diário/semanal, horário)~~
+- [x] ~~Storage local~~ **e Google Drive** (saiu do MVP original, pedido explícito do usuário fora de ordem)
+- [x] ~~Restore de backup (sobrescrever servidor original ou criar novo)~~
+- [x] ~~Retenção simples: manter últimos N backups~~
+
+`pg_dump`/`pg_restore` rodam DIRETO de dentro do container do backend (não via `docker exec` no container gerenciado — mesma decisão de segurança do resto do projeto, o docker-socket-proxy nunca libera `EXEC`). O binário do cliente é a versão 17 (Alpine 3.21, bump de 3.19 porque esse pacote só existe a partir daí) — cobre dump de servidores v13-17 porque `pg_dump` só consegue falar com Postgres da mesma versão ou mais velho, nunca mais novo. Conecta pelo nome do container na rede `gestpg-managed`, igual toda outra operação do backend.
+
+Arquivo local fica num volume Docker próprio (`backups_data`, montado em `/backups` no backend) — nunca bind mount do host. Backup pro Google Drive não guarda cópia local nenhuma: o dump escreve num arquivo temporário (`/backups/tmp`), sobe em streaming (multipart via `io.Pipe`, nunca carrega o arquivo inteiro em memória — dumps grandes podem ser vários GB) pra uma pasta própria (`gest-postgres-backups`) na conta configurada, e o temporário é apagado. Restore faz o caminho inverso: baixa (do Drive) ou abre direto (local) antes de rodar `pg_restore --clean --if-exists`.
+
+Restore tem dois modos: sobrescrever um banco já existente (apaga tudo que tinha antes) ou criar um banco novo do zero e restaurar nele, sem tocar no original.
+
+"Cron básico" é literal — sem parser de expressão cron de verdade, só frequência (diária/semanal + dia da semana) e horário (UTC), checado a cada 1 minuto contra o último `last_run_at` de cada política habilitada. Retenção (`retention_count`) só conta backups gerados POR AQUELA política — um backup manual nunca é apagado automaticamente por nenhuma política.
+
+Google Drive: cada instalação usa o próprio app OAuth do dono (client_id/secret cadastrado nas configurações — a plataforma não embute nenhuma credencial Google própria). Fluxo padrão: gera URL de consentimento (`access_type=offline&prompt=consent`, garante que a Google devolve `refresh_token` de verdade, não só um `access_token` que expira em 1h), usuário autoriza no navegador dele mesmo (não tem como isso ser automatizado — é a própria Google pedindo login da conta), callback troca o code pelo token e guarda o `refresh_token` cifrado. Implementado com `golang.org/x/oauth2` + chamadas HTTP diretas pra Drive API v3 REST (upload/download/delete), de propósito sem o SDK `google.golang.org/api` — evita puxar uma árvore de dependência bem maior pra só 3 operações.
+
+Testado ponta a ponta no droplet: backup manual local (dump → completo → download → restore em banco novo → restore sobrescrevendo banco existente → delete), e política agendada rodada 3x manualmente com `retention_count=2` confirmando que só os 2 backups mais recentes DAQUELA política sobrevivem (arquivo em disco e registro no banco de metadados, os dois). Integração com Google Drive testada só até a geração da URL de consentimento e o roundtrip da API — a autorização de verdade depende de credenciais OAuth reais que só o dono da conta Google consegue gerar/conceder.
 
 ### Plataforma
 - [ ] Login/senha (1 usuário admin, sem RBAC multi-nível ainda)
