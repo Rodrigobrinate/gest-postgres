@@ -12,7 +12,21 @@ import { Search } from "lucide-react";
 
 // Extensões mais pedidas ficam no topo quando ainda não habilitadas, pra não
 // precisar catar entre as ~40 que o Postgres lista por padrão.
-const HIGHLIGHTED = ["pg_stat_statements", "uuid-ossp", "pgcrypto", "pg_trgm", "hstore", "citext"];
+const HIGHLIGHTED = [
+  "pg_stat_statements",
+  "uuid-ossp",
+  "pgcrypto",
+  "pg_trgm",
+  "hstore",
+  "citext",
+  "vector",
+  "pg_cron",
+];
+
+// Extensões que só funcionam depois de reiniciar o container (registram lib
+// em shared_preload_libraries) — o clique em "Habilitar" demora mais e
+// derruba conexões momentaneamente, então avisa antes.
+const NEEDS_RESTART = ["pg_stat_statements", "pg_cron"];
 
 export function ExtensionsTab({ serverId, database }: { serverId: string; database: string }) {
   const [filter, setFilter] = useState("");
@@ -92,6 +106,11 @@ export function ExtensionsTab({ serverId, database }: { serverId: string; databa
                         {installed && (
                           <Badge variant="outline" className="border-emerald-200 bg-emerald-100 text-emerald-700">
                             v{ext.installed_version}
+                          </Badge>
+                        )}
+                        {!installed && NEEDS_RESTART.includes(ext.name) && (
+                          <Badge variant="outline" title="Reinicia o container ao habilitar">
+                            requer restart
                           </Badge>
                         )}
                       </div>

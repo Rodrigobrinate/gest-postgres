@@ -129,7 +129,22 @@ else
 	ok "backend/go.sum gerado"
 fi
 
-# ---------- 6. sobe o stack ----------
+# ---------- 6. imagens Postgres gerenciadas (pgvector + pg_cron) ----------
+# postgres:X oficial não vem com extensões extra compiladas. Builda local, uma
+# vez por versão suportada — o backend só faz pull/inspect (nunca build) pela
+# permissão restrita do docker-socket-proxy, então essas imagens precisam já
+# existir localmente antes do primeiro "criar servidor".
+log "buildando imagens gestpg-postgres:{13..17} (pgvector + pg_cron)"
+for v in 13 14 15 16 17; do
+	if "$DOCKER" image inspect "gestpg-postgres:${v}" >/dev/null 2>&1; then
+		ok "gestpg-postgres:${v} já existe, não rebuildei"
+		continue
+	fi
+	"$DOCKER" build --build-arg "PG_MAJOR=${v}" -t "gestpg-postgres:${v}" ./postgres-image
+	ok "gestpg-postgres:${v} buildada"
+done
+
+# ---------- 7. sobe o stack ----------
 log "subindo o stack (docker compose up --build -d)"
 "$DOCKER" compose up --build -d
 

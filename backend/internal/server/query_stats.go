@@ -9,34 +9,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// enableQueryStatsPreload garante pg_stat_statements em shared_preload_libraries
-// sem apagar outras libs que já estejam lá (raro no MVP, mas não custa nada
-// preservar). Só grava via ALTER SYSTEM — quem chama decide quando reiniciar.
+// enableQueryStatsPreload é o caso especial de enablePreloadLib usado na
+// criação do servidor (pg_stat_statements pré-carregado por padrão em todo
+// servidor novo). Ver extensions.go pro caso genérico usado sob demanda.
 func (s *Service) enableQueryStatsPreload(ctx context.Context, record *Server) error {
-	conn, err := s.connectTo(ctx, record, record.DatabaseName)
-	if err != nil {
-		return err
-	}
-	defer conn.Close(ctx)
-
-	var current string
-	if err := conn.QueryRow(ctx, `SHOW shared_preload_libraries`).Scan(&current); err != nil {
-		return fmt.Errorf("lendo shared_preload_libraries: %w", err)
-	}
-
-	if containsLib(current, "pg_stat_statements") {
-		return nil
-	}
-
-	next := "pg_stat_statements"
-	if current != "" {
-		next = current + ",pg_stat_statements"
-	}
-
-	if _, err := conn.Exec(ctx, "ALTER SYSTEM SET shared_preload_libraries = "+sqlQuoteLiteral(next)); err != nil {
-		return fmt.Errorf("configurando shared_preload_libraries: %w", err)
-	}
-	return nil
+	return s.enablePreloadLib(ctx, record, "pg_stat_statements")
 }
 
 func containsLib(csv, lib string) bool {

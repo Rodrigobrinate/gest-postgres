@@ -62,6 +62,12 @@ Configuração expandida bem além do subset original: ~86 parâmetros geridos, 
 - [x] ~~Listar `pg_available_extensions`~~
 - [x] ~~Habilitar/desabilitar: `pg_stat_statements`, `uuid-ossp`, `pgcrypto`, `pg_trgm`~~ (e qualquer outra da lista, não só essas 4)
 
+`postgres:X` oficial não vem com `pgvector` nem `pg_cron` compilados — servidores novos agora sobem em cima de `gestpg-postgres:X` (`postgres-image/Dockerfile`), a mesma imagem oficial + esses dois pacotes via apt (repo PGDG que a própria imagem já tem configurado). Buildada localmente pelo `setup.sh` uma vez por versão suportada (13-17) — o backend só faz pull/inspect na criação de servidor, nunca build (permissão do docker-socket-proxy é só isso de propósito). `pgvector` funciona na hora (`CREATE EXTENSION vector`, sem restart). `pg_cron` precisa de `shared_preload_libraries` + `cron.database_name`, mesmo tratamento que já existia pra `pg_stat_statements` — clique em "Habilitar" na aba Extensões cuida disso sozinho (reinicia o container, demora mais, badge "requer restart" avisa antes).
+
+Achado e corrigido um bug sério do próprio Postgres nesse processo: `ALTER SYSTEM SET shared_preload_libraries = 'lib1,lib2'` (uma string só com vírgula dentro) faz o Postgres persistir errado no `postgresql.auto.conf` — grava `= '"lib1,lib2"'` com aspas duplas extras envolvendo tudo, e na subida seguinte ele tenta abrir UM arquivo de lib chamado literalmente "lib1,lib2" e trava em crash loop pra sempre. A sintaxe correta é multi-valor (`ALTER SYSTEM SET shared_preload_libraries = lib1, lib2` — identificadores soltos, sem string por fora). Servidores já existentes com só 1 lib preload nunca bateram nesse bug (só aparece com 2+).
+
+Servidores criados antes dessa mudança continuam na imagem `postgres:X` antiga — sem pgvector/pg_cron disponíveis até serem recriados. Sem migração automática no MVP.
+
 ### Monitoramento
 - [x] ~~`pg_stat_activity` ao vivo (sessões, query atual, estado), botão cancelar/terminar sessão~~
 - [x] ~~Dashboard com gráfico de conexões ao longo do tempo~~ (+ gráfico de CPU/memória — histórico em memória, reseta se o backend reiniciar)
@@ -119,7 +125,7 @@ Não implementar agora. Detalhe completo em REQUISITOS.md. Resumo do que fica pr
 - Multi-tenancy (organizações)
 - Auto-descoberta de Postgres já existentes na máquina (não criados pelo sistema) — ao instalar, varrer a máquina local por instalações Postgres e containers de banco já rodando, sugerir cadastro, pedir senha de cada um se necessário. Sempre local — sem gestão remota por enquanto (possível "cloud" futuro que agregue múltiplas máquinas monitoradas fica pra depois)
 - Upgrade de versão maior via wizard (`pg_upgrade`), clonagem rápida de banco (copy-on-write, ambiente de teste idêntico à produção em segundos — tipo Neon), mascaramento de dados (anonimizar dados sensíveis ao clonar produção pra dev/staging), retenção e arquivamento (política automática de quando arquivar/deletar dados antigos)
-- Extensões avançadas com UI dedicada: `pg_cron` (job scheduler), `pgaudit`, `timescaledb`, `pg_partman`, `postgis`
+- Extensões avançadas com UI dedicada (habilitar/desabilitar genérico já cobre instalar; UI dedicada seria pra gerenciar o conteúdo — jobs do pg_cron, políticas do pgaudit, etc): `pgaudit`, `timescaledb`, `pg_partman`, `postgis` (`pgvector` e `pg_cron` já saíram — ver seção Extensões acima)
 
 ## Notas pro Claude
 

@@ -152,6 +152,41 @@ func (c *Client) ListManagedContainers(ctx context.Context) ([]types.Container, 
 	return containers, nil
 }
 
+// ListAllContainers lista TODOS os containers do host (não só os gerenciados
+// pela plataforma) — usado só pela auto-descoberta, que precisa enxergar o
+// que já existe fora do nosso controle pra sugerir cadastro.
+func (c *Client) ListAllContainers(ctx context.Context) ([]types.Container, error) {
+	containers, err := c.cli.ContainerList(ctx, types.ContainerListOptions{All: true})
+	if err != nil {
+		return nil, fmt.Errorf("listando containers: %w", err)
+	}
+	return containers, nil
+}
+
+// ConnectNetwork anexa um container já existente (não criado por nós) à rede
+// gerenciada — necessário pra conseguir falar com ele pelo nome depois de
+// "adotado" via auto-descoberta. Idempotente: já conectado não é erro.
+func (c *Client) ConnectNetwork(ctx context.Context, networkName, containerID string) error {
+	err := c.cli.NetworkConnect(ctx, networkName, containerID, nil)
+	if err != nil && !isAlreadyConnectedErr(err) {
+		return fmt.Errorf("conectando container %s à rede %s: %w", containerID, networkName, err)
+	}
+	return nil
+}
+
+func isAlreadyConnectedErr(err error) bool {
+	return err != nil && (contains(err.Error(), "already exists in network") || contains(err.Error(), "already attached"))
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // WaitHealthy faz polling simples do status até o container reportar "running",
 // com timeout. Não usa healthcheck do Docker (a imagem postgres oficial não define
 // um por padrão) — a checagem real de "aceita conexões" fica pro service, que tenta

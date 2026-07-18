@@ -119,7 +119,12 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 		return
 	}
 
-	image := "postgres:" + record.Version
+	// gestpg-postgres:X é a imagem oficial + pgvector/pg_cron, buildada
+	// localmente pelo setup.sh (ver postgres-image/Dockerfile) — nunca
+	// baixada de registry, então PullImageIfMissing só confirma que já
+	// existe local (o backend não tem permissão de build no docker-socket-proxy
+	// de propósito, só de pull/inspect).
+	image := "gestpg-postgres:" + record.Version
 
 	if err := s.docker.EnsureNetwork(ctx, s.networkName); err != nil {
 		s.markError(ctx, serverID)
