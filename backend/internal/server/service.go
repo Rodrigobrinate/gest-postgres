@@ -24,10 +24,11 @@ var allowedVersions = map[string]bool{
 }
 
 type Service struct {
-	repo      *Repo
-	docker    *docker.Client
-	secretBox *crypto.SecretBox
-	history   *HistoryCollector
+	repo            *Repo
+	docker          *docker.Client
+	secretBox       *crypto.SecretBox
+	history         *HistoryCollector
+	platformHistory *platformHistory
 
 	networkName    string
 	portRangeStart int
@@ -36,13 +37,14 @@ type Service struct {
 
 func NewService(repo *Repo, dockerClient *docker.Client, secretBox *crypto.SecretBox, networkName string, portRangeStart, portRangeEnd int) *Service {
 	return &Service{
-		repo:           repo,
-		docker:         dockerClient,
-		secretBox:      secretBox,
-		history:        NewHistoryCollector(240), // ~1h a 15s/amostra
-		networkName:    networkName,
-		portRangeStart: portRangeStart,
-		portRangeEnd:   portRangeEnd,
+		repo:            repo,
+		docker:          dockerClient,
+		secretBox:       secretBox,
+		history:         NewHistoryCollector(240), // ~1h a 15s/amostra
+		platformHistory: newPlatformHistory(240),
+		networkName:     networkName,
+		portRangeStart:  portRangeStart,
+		portRangeEnd:    portRangeEnd,
 	}
 }
 

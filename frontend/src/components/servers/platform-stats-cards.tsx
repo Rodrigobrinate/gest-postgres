@@ -1,18 +1,35 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, type ContainerStat, type PlatformStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Cpu, MemoryStick, HardDrive, Network } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Sparkline } from "./sparkline";
 
 function formatBytes(bytes: number) {
+  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(2)} TB`;
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${bytes} B`;
+}
+
+function formatRate(bytesPerSec: number) {
+  return `${formatBytes(Math.max(bytesPerSec, 0))}/s`;
+}
+
+// Diferença consecutiva vira taxa (bytes/s) — o histórico guarda acumulado,
+// igual o docker faz, então uma amostra sozinha não dá "velocidade", precisa
+// de duas.
+function toRateSeries(values: number[], timestamps: number[]) {
+  const rates: number[] = [];
+  for (let i = 1; i < values.length; i++) {
+    const dt = (timestamps[i] - timestamps[i - 1]) / 1000;
+    rates.push(dt > 0 ? Math.max((values[i] - values[i - 1]) / dt, 0) : 0);
+  }
+  return rates;
 }
 
 export function PlatformStatsCards() {
@@ -21,6 +38,27 @@ export function PlatformStatsCards() {
     queryFn: () => api.platformStats(),
     refetchInterval: 15_000,
   });
+
+  const { data: history } = useQuery({
+    queryKey: ["platform-stats-history"],
+    queryFn: () => api.platformStatsHistory(),
+    refetchInterval: 15_000,
+  });
+
+  // Guarda o poll anterior pra comparar "subiu/desceu" — padrão oficial do
+  // React pra "state derivado de mudança de prop" (setState direto no corpo
+  // do render quando o valor mudou desde o render anterior, não dentro de
+  // useEffect — ver "Adjusting some state when a prop changes" nos docs).
+  const [lastSeen, setLastSeen] = useState<PlatformStats | undefined>(undefined);
+  const [previous, setPrevious] = useState<Map<string, ContainerStat>>(new Map());
+  if (data && data !== lastSeen) {
+    setLastSeen(data);
+    if (lastSeen) {
+      const next = new Map<string, ContainerStat>();
+      for (const c of lastSeen.containers) next.set(c.container_id, c);
+      setPrevious(next);
+    }
+  }
 
   if (isLoading || !data) {
     return (
@@ -37,34 +75,64 @@ export function PlatformStatsCards() {
     );
   }
 
+  const timestamps = (history ?? []).map((p) => new Date(p.timestamp).getTime());
+  const cpuSeries = (history ?? []).map((p) => p.cpu_percent);
+  const memSeries = (history ?? []).map((p) => p.memory_used_mb);
+  const diskSeries = (history ?? []).map((p) => p.disk_used_bytes);
+  const rxSeries = toRateSeries(
+    (history ?? []).map((p) => p.network_rx_bytes),
+    timestamps
+  );
+  const txSeries = toRateSeries(
+    (history ?? []).map((p) => p.network_tx_bytes),
+    timestamps
+  );
+  const netSeries = rxSeries.map((v, i) => v + (txSeries[i] ?? 0));
+
   const memPercent =
     data.total_memory_limit_mb > 0 ? (data.total_memory_used_mb / data.total_memory_limit_mb) * 100 : 0;
+  const diskPercent = data.disk_total_bytes > 0 ? (data.disk_used_bytes / data.disk_total_bytes) * 100 : 0;
+  const currentRxRate = rxSeries.length > 0 ? rxSeries[rxSeries.length - 1] : 0;
+  const currentTxRate = txSeries.length > 0 ? txSeries[txSeries.length - 1] : 0;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-4 gap-4">
-        <StatCard
+        <SparkCard
           icon={<Cpu className="size-4" />}
           label="CPU (todos os containers)"
           value={`${data.total_cpu_percent.toFixed(1)}%`}
+          hint={`${data.containers.length} container(s)`}
+          series={cpuSeries}
+          color="#2563eb"
         />
-        <StatCard
+        <SparkCard
           icon={<MemoryStick className="size-4" />}
           label="Memória"
           value={`${data.total_memory_used_mb.toFixed(0)} MB`}
           hint={`de ${data.total_memory_limit_mb.toFixed(0)} MB (${memPercent.toFixed(0)}%)`}
+          series={memSeries}
+          color="#7c3aed"
         />
-        <StatCard
+        <SparkCard
           icon={<HardDrive className="size-4" />}
-          label="Disco (Docker)"
-          value={formatBytes(data.disk_used_bytes)}
-          hint="imagens + containers + volumes"
+          label="Disco"
+          value={data.disk_available ? `${diskPercent.toFixed(0)}%` : "—"}
+          hint={
+            data.disk_available
+              ? `${formatBytes(data.disk_used_bytes)} de ${formatBytes(data.disk_total_bytes)}`
+              : "mount /hostfs indisponível"
+          }
+          series={diskSeries}
+          color="#059669"
         />
-        <StatCard
+        <SparkCard
           icon={<Network className="size-4" />}
-          label="Rede (acumulado)"
-          value={`↓${formatBytes(data.network_rx_bytes_total)}`}
-          hint={`↑${formatBytes(data.network_tx_bytes_total)}`}
+          label="Rede"
+          value={`↓${formatRate(currentRxRate)}`}
+          hint={`↑${formatRate(currentTxRate)}`}
+          series={netSeries}
+          color="#0891b2"
         />
       </div>
 
@@ -76,27 +144,57 @@ export function PlatformStatsCards() {
           {data.containers.length === 0 ? (
             <p className="text-muted-foreground p-6 text-sm">Nenhum container rodando.</p>
           ) : (
-            <ul className="divide-y">
-              {data.containers.map((c) => (
-                <li key={c.container_id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-mono">{c.server_name ?? c.name}</span>
-                    {c.is_managed && <Badge variant="outline">gerenciado</Badge>}
-                  </div>
-                  <div className="text-muted-foreground flex shrink-0 gap-4 font-mono text-xs">
-                    <span className={cn(c.cpu_percent >= 70 && "text-red-600")}>
-                      CPU {c.cpu_percent.toFixed(1)}%
-                    </span>
-                    <span>
-                      {c.memory_used_mb.toFixed(0)}/{c.memory_limit_mb.toFixed(0)} MB
-                    </span>
-                    <span>
-                      ↓{formatBytes(c.network_rx_bytes)} ↑{formatBytes(c.network_tx_bytes)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-muted-foreground border-b text-xs">
+                    <th className="px-4 py-2 text-left font-normal">Nome</th>
+                    <th className="px-4 py-2 text-right font-normal">CPU</th>
+                    <th className="px-4 py-2 text-right font-normal">Memória</th>
+                    <th className="px-4 py-2 text-right font-normal">Peso no banco</th>
+                    <th className="px-4 py-2 text-right font-normal">I/O disco (leitura/escrita)</th>
+                    <th className="px-4 py-2 text-right font-normal">Rede (acumulado)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.containers.map((c) => {
+                    const prev = previous.get(c.container_id);
+                    return (
+                      <tr key={c.container_id} className="border-b last:border-0">
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-mono">{c.server_name ?? c.name}</span>
+                            {c.is_managed && <Badge variant="outline">gerenciado</Badge>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono text-xs">
+                          <Trend value={c.cpu_percent} previous={prev?.cpu_percent}>
+                            {c.cpu_percent.toFixed(1)}%
+                          </Trend>
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono text-xs">
+                          <Trend value={c.memory_used_mb} previous={prev?.memory_used_mb}>
+                            {c.memory_used_mb.toFixed(0)} MB
+                          </Trend>
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono text-xs">
+                          {c.volume_size_bytes != null ? formatBytes(c.volume_size_bytes) : "—"}
+                        </td>
+                        <td className="text-muted-foreground px-4 py-2 text-right font-mono text-xs">
+                          ↓{formatBytes(c.block_read_bytes)} ↑{formatBytes(c.block_write_bytes)}
+                          {(c.block_read_ops > 0 || c.block_write_ops > 0) && (
+                            <span> · {c.block_read_ops + c.block_write_ops} ops</span>
+                          )}
+                        </td>
+                        <td className="text-muted-foreground px-4 py-2 text-right font-mono text-xs">
+                          ↓{formatBytes(c.network_rx_bytes)} ↑{formatBytes(c.network_tx_bytes)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -104,16 +202,39 @@ export function PlatformStatsCards() {
   );
 }
 
-function StatCard({
+// Vermelho se subiu em relação à amostra anterior, verde se desceu — mesma
+// lógica de ticker de mercado financeiro, aplicada às métricas "ao vivo"
+// (CPU/memória) que fazem sentido comparar ponto a ponto.
+function Trend({
+  value,
+  previous,
+  children,
+}: {
+  value: number;
+  previous?: number;
+  children: ReactNode;
+}) {
+  let color = "";
+  if (previous != null && Math.abs(value - previous) > 0.05) {
+    color = value > previous ? "text-red-600" : "text-emerald-600";
+  }
+  return <span className={color}>{children}</span>;
+}
+
+function SparkCard({
   icon,
   label,
   value,
   hint,
+  series,
+  color,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   hint?: string;
+  series: number[];
+  color: string;
 }) {
   return (
     <Card>
@@ -124,6 +245,9 @@ function StatCard({
         </p>
         <p className="text-2xl font-semibold">{value}</p>
         {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+        <div className="mt-2 -mb-2 -ml-1">
+          <Sparkline data={series} color={color} />
+        </div>
       </CardContent>
     </Card>
   );

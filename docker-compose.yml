@@ -57,6 +57,11 @@ services:
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
     ports:
       - "8080:8080"
+    volumes:
+      # Só pra medir disco real do host via statfs (dashboard) — não a raiz
+      # inteira, só /etc (mesmo filesystem que / em qualquer droplet de disco
+      # único, sem expor o resto da árvore do host pra dentro do container).
+      - /etc:/hostfs:ro
     depends_on:
       metadata-db:
         condition: service_healthy

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -46,12 +47,16 @@ func (c *Client) containerLogs(ctx context.Context, containerID string, tailLine
 }
 
 type ContainerStatsSnapshot struct {
-	CPUPercent      float64 `json:"cpu_percent"`
-	MemoryUsedMB    float64 `json:"memory_used_mb"`
-	MemoryLimitMB   float64 `json:"memory_limit_mb"`
-	MemoryPercent   float64 `json:"memory_percent"`
-	NetworkRxBytes  int64   `json:"network_rx_bytes"` // cumulativo desde que o container subiu, não taxa
-	NetworkTxBytes  int64   `json:"network_tx_bytes"`
+	CPUPercent     float64 `json:"cpu_percent"`
+	MemoryUsedMB   float64 `json:"memory_used_mb"`
+	MemoryLimitMB  float64 `json:"memory_limit_mb"`
+	MemoryPercent  float64 `json:"memory_percent"`
+	NetworkRxBytes int64   `json:"network_rx_bytes"` // cumulativo desde que o container subiu, não taxa
+	NetworkTxBytes int64   `json:"network_tx_bytes"`
+	BlockReadBytes int64   `json:"block_read_bytes"` // idem — cumulativo
+	BlockWriteBytes int64  `json:"block_write_bytes"`
+	BlockReadOps   int64   `json:"block_read_ops"` // 0 em host cgroup v2 (kernel não expõe mais essa métrica)
+	BlockWriteOps  int64   `json:"block_write_ops"`
 }
 
 // dockerStatsRaw só declara os campos que a gente usa — o JSON completo de
@@ -82,6 +87,15 @@ type dockerStatsRaw struct {
 		RxBytes uint64 `json:"rx_bytes"`
 		TxBytes uint64 `json:"tx_bytes"`
 	} `json:"networks"`
+	BlkioStats struct {
+		IoServiceBytesRecursive []blkioEntry `json:"io_service_bytes_recursive"`
+		IoServicedRecursive     []blkioEntry `json:"io_serviced_recursive"`
+	} `json:"blkio_stats"`
+}
+
+type blkioEntry struct {
+	Op    string `json:"op"`
+	Value uint64 `json:"value"`
 }
 
 // ContainerStats pega um snapshot único (sem stream) de CPU/memória, com o
@@ -126,12 +140,40 @@ func (c *Client) ContainerStats(ctx context.Context, containerID string) (Contai
 		txBytes += n.TxBytes
 	}
 
+	// cgroup v1 usa "Read"/"Write" (maiúsculo), cgroup v2 usa "read"/"write"
+	// minúsculo — o Docker não normaliza isso na API, então compara
+	// case-insensitive. io_serviced_recursive (contagem de ops, não bytes)
+	// vem null em host cgroup v2 — não tem como evitar, o kernel não expõe
+	// mais essa métrica por esse caminho.
+	var readBytes, writeBytes uint64
+	for _, e := range raw.BlkioStats.IoServiceBytesRecursive {
+		switch strings.ToLower(e.Op) {
+		case "read":
+			readBytes += e.Value
+		case "write":
+			writeBytes += e.Value
+		}
+	}
+	var readOps, writeOps uint64
+	for _, e := range raw.BlkioStats.IoServicedRecursive {
+		switch strings.ToLower(e.Op) {
+		case "read":
+			readOps += e.Value
+		case "write":
+			writeOps += e.Value
+		}
+	}
+
 	return ContainerStatsSnapshot{
-		CPUPercent:     cpuPercent,
-		MemoryUsedMB:   memUsage / 1024 / 1024,
-		MemoryLimitMB:  memLimit / 1024 / 1024,
-		MemoryPercent:  memPercent,
-		NetworkRxBytes: int64(rxBytes),
-		NetworkTxBytes: int64(txBytes),
+		CPUPercent:      cpuPercent,
+		MemoryUsedMB:    memUsage / 1024 / 1024,
+		MemoryLimitMB:   memLimit / 1024 / 1024,
+		MemoryPercent:   memPercent,
+		NetworkRxBytes:  int64(rxBytes),
+		NetworkTxBytes:  int64(txBytes),
+		BlockReadBytes:  int64(readBytes),
+		BlockWriteBytes: int64(writeBytes),
+		BlockReadOps:    int64(readOps),
+		BlockWriteOps:   int64(writeOps),
 	}, nil
 }

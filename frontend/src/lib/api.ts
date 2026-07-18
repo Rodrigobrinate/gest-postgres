@@ -300,6 +300,11 @@ export interface ContainerStat {
   memory_limit_mb: number;
   network_rx_bytes: number;
   network_tx_bytes: number;
+  block_read_bytes: number;
+  block_write_bytes: number;
+  block_read_ops: number;
+  block_write_ops: number;
+  volume_size_bytes?: number;
 }
 
 export interface PlatformStats {
@@ -307,9 +312,22 @@ export interface PlatformStats {
   total_cpu_percent: number;
   total_memory_used_mb: number;
   total_memory_limit_mb: number;
+  disk_total_bytes: number;
   disk_used_bytes: number;
+  disk_free_bytes: number;
+  disk_available: boolean;
+  docker_disk_used_bytes: number;
   network_rx_bytes_total: number;
   network_tx_bytes_total: number;
+}
+
+export interface PlatformMetricPoint {
+  timestamp: string;
+  cpu_percent: number;
+  memory_used_mb: number;
+  disk_used_bytes: number;
+  network_rx_bytes: number;
+  network_tx_bytes: number;
 }
 
 export interface DiscoveredContainer {
@@ -505,6 +523,8 @@ export const api = {
     }),
 
   platformStats: () => request<PlatformStats>(`/api/v1/platform-stats`),
+
+  platformStatsHistory: () => request<PlatformMetricPoint[]>(`/api/v1/platform-stats-history`),
 
   discover: () => request<DiscoveredContainer[]>(`/api/v1/discover`),
 

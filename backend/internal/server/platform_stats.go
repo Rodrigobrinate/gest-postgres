@@ -5,35 +5,47 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/gest-postgres/backend/internal/docker"
 )
 
 type ContainerStat struct {
-	ContainerID    string  `json:"container_id"`
-	Name           string  `json:"name"`
-	Image          string  `json:"image"`
-	IsManaged      bool    `json:"is_managed"`
-	ServerID       string  `json:"server_id,omitempty"`
-	ServerName     string  `json:"server_name,omitempty"`
-	CPUPercent     float64 `json:"cpu_percent"`
-	MemoryUsedMB   float64 `json:"memory_used_mb"`
-	MemoryLimitMB  float64 `json:"memory_limit_mb"`
-	NetworkRxBytes int64   `json:"network_rx_bytes"`
-	NetworkTxBytes int64   `json:"network_tx_bytes"`
+	ContainerID     string  `json:"container_id"`
+	Name            string  `json:"name"`
+	Image           string  `json:"image"`
+	IsManaged       bool    `json:"is_managed"`
+	ServerID        string  `json:"server_id,omitempty"`
+	ServerName      string  `json:"server_name,omitempty"`
+	CPUPercent      float64 `json:"cpu_percent"`
+	MemoryUsedMB    float64 `json:"memory_used_mb"`
+	MemoryLimitMB   float64 `json:"memory_limit_mb"`
+	NetworkRxBytes  int64   `json:"network_rx_bytes"`
+	NetworkTxBytes  int64   `json:"network_tx_bytes"`
+	BlockReadBytes  int64   `json:"block_read_bytes"`
+	BlockWriteBytes int64   `json:"block_write_bytes"`
+	BlockReadOps    int64   `json:"block_read_ops"`
+	BlockWriteOps   int64   `json:"block_write_ops"`
+	VolumeSizeBytes int64   `json:"volume_size_bytes,omitempty"` // tamanho do volume de dados (só gerenciados)
 }
 
 // PlatformStats agrega TODOS os containers Docker do host (não só os
 // gerenciados) — é o proxy honesto de "recursos da plataforma" que dá pra
-// ter sem acesso ao host além da API Docker (sem host real CPU/mem/disco/rede,
-// já que o backend roda dentro de container e só fala com o Docker via
-// socket-proxy de propósito).
+// ter sem acesso ao host além da API Docker. Disco é exceção: vem de
+// statfs real no host via mount /hostfs (ver docker-compose.yml e
+// docker.HostDiskUsage) — os outros (CPU/memória/rede/I/O) continuam sendo
+// soma dos containers, não tem como pegar "de fora do Docker" sem isso.
 type PlatformStats struct {
-	Containers          []ContainerStat `json:"containers"`
-	TotalCPUPercent     float64         `json:"total_cpu_percent"`
-	TotalMemoryUsedMB   float64         `json:"total_memory_used_mb"`
-	TotalMemoryLimitMB  float64         `json:"total_memory_limit_mb"`
-	DiskUsedBytes       int64           `json:"disk_used_bytes"`
-	NetworkRxBytesTotal int64           `json:"network_rx_bytes_total"`
-	NetworkTxBytesTotal int64           `json:"network_tx_bytes_total"`
+	Containers            []ContainerStat `json:"containers"`
+	TotalCPUPercent       float64         `json:"total_cpu_percent"`
+	TotalMemoryUsedMB     float64         `json:"total_memory_used_mb"`
+	TotalMemoryLimitMB    float64         `json:"total_memory_limit_mb"`
+	DiskTotalBytes        int64           `json:"disk_total_bytes"`
+	DiskUsedBytes         int64           `json:"disk_used_bytes"`
+	DiskFreeBytes         int64           `json:"disk_free_bytes"`
+	DiskAvailable         bool            `json:"disk_available"` // false se o mount /hostfs não existe
+	DockerDiskUsedBytes   int64           `json:"docker_disk_used_bytes"` // subconjunto: só imagens+containers+volumes
+	NetworkRxBytesTotal   int64           `json:"network_rx_bytes_total"`
+	NetworkTxBytesTotal   int64           `json:"network_tx_bytes_total"`
 }
 
 func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) {
@@ -60,6 +72,19 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 		}
 	}
 
+	// Busca de uma vez só, fora do loop de containers — dá tanto o agregado
+	// (imagens+containers+volumes) quanto o tamanho de cada volume nomeado
+	// individualmente, que é o "peso no banco" de cada Postgres gerenciado.
+	du, duErr := s.docker.DiskUsage(ctx)
+	volumeSizes := make(map[string]int64)
+	if duErr == nil {
+		for _, v := range du.Volumes {
+			if v.UsageData != nil {
+				volumeSizes[v.Name] = v.UsageData.Size
+			}
+		}
+	}
+
 	results := make([]ContainerStat, len(running))
 	var wg sync.WaitGroup
 	for i, c := range running {
@@ -75,19 +100,24 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 				name = strings.TrimPrefix(c.Names[0], "/")
 			}
 			cs := ContainerStat{
-				ContainerID:    c.ID,
-				Name:           name,
-				Image:          c.Image,
-				CPUPercent:     snapshot.CPUPercent,
-				MemoryUsedMB:   snapshot.MemoryUsedMB,
-				MemoryLimitMB:  snapshot.MemoryLimitMB,
-				NetworkRxBytes: snapshot.NetworkRxBytes,
-				NetworkTxBytes: snapshot.NetworkTxBytes,
+				ContainerID:     c.ID,
+				Name:            name,
+				Image:           c.Image,
+				CPUPercent:      snapshot.CPUPercent,
+				MemoryUsedMB:    snapshot.MemoryUsedMB,
+				MemoryLimitMB:   snapshot.MemoryLimitMB,
+				NetworkRxBytes:  snapshot.NetworkRxBytes,
+				NetworkTxBytes:  snapshot.NetworkTxBytes,
+				BlockReadBytes:  snapshot.BlockReadBytes,
+				BlockWriteBytes: snapshot.BlockWriteBytes,
+				BlockReadOps:    snapshot.BlockReadOps,
+				BlockWriteOps:   snapshot.BlockWriteOps,
 			}
 			if srv, ok := byContainerID[c.ID]; ok {
 				cs.IsManaged = true
 				cs.ServerID = srv.ID
 				cs.ServerName = srv.Name
+				cs.VolumeSizeBytes = volumeSizes[srv.VolumeName]
 			}
 			results[i] = cs
 		}()
@@ -110,14 +140,18 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 		return stats.Containers[i].CPUPercent > stats.Containers[j].CPUPercent
 	})
 
-	du, err := s.docker.DiskUsage(ctx)
-	if err == nil {
-		stats.DiskUsedBytes = du.LayersSize
-		for _, v := range du.Volumes {
-			if v.UsageData != nil {
-				stats.DiskUsedBytes += v.UsageData.Size
-			}
+	if duErr == nil {
+		stats.DockerDiskUsedBytes = du.LayersSize
+		for _, size := range volumeSizes {
+			stats.DockerDiskUsedBytes += size
 		}
+	}
+
+	if total, used, free, err := docker.HostDiskUsage(); err == nil {
+		stats.DiskAvailable = true
+		stats.DiskTotalBytes = total
+		stats.DiskUsedBytes = used
+		stats.DiskFreeBytes = free
 	}
 
 	return stats, nil

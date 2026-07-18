@@ -103,7 +103,9 @@ Todos os itens acima testados via curl direto no droplet (criar/listar/refresh/e
 
 ### Plataforma
 - [ ] Login/senha (1 usuário admin, sem RBAC multi-nível ainda)
-- [x] ~~Dashboard principal com cards de resumo + gráficos do item Monitoramento~~ — CPU/memória/disco/rede agregados de TODOS os containers Docker do host (não só os gerenciados — dá pra ver o que a própria plataforma consome também), + lista por container com destaque pros gerenciados. "Recursos do host" de verdade (fora do mundo Docker) não é possível com a arquitetura atual (backend só fala com o host via Docker socket-proxy, sem acesso a /proc) — disco vem do `/system/df` do Docker (imagens+containers+volumes, exigiu habilitar a categoria `SYSTEM` no proxy), rede é acumulado desde que cada container subiu (não taxa em tempo real)
+- [x] ~~Dashboard principal com cards de resumo + gráficos do item Monitoramento~~ — 4 cards estilo EasyPanel (número grande + sparkline colorido embaixo, histórico curto em memória ~1h a 15s/amostra) pra CPU/memória/disco/rede, + tabela por container com CPU/memória/peso do volume de dados (só gerenciados)/I/O de disco/rede, valores ao vivo (CPU/memória) ficam vermelho se subiram e verde se desceram desde o poll anterior (igual ticker de mercado). CPU/memória/rede/I/O continuam sendo soma dos containers Docker (sem acesso ao host além da API Docker pra esses); **disco é exceção** — número real do host (total/usado/livre), via `statfs` num mount read-only só de `/etc` (não a raiz inteira, de propósito — é o bastante pra medir o mesmo filesystem que `/` num droplet de disco único sem expor a árvore toda) dentro do container do backend. Rede agora é taxa de verdade (bytes/s, calculada por delta entre amostras do histórico), não mais só acumulado.
+
+Achado nessa leva: containers em host cgroup v2 reportam `blkio_stats` com `op` minúsculo (`"read"/"write"`), não maiúsculo (`"Read"/"Write"` como cgroup v1) — sem tratar os dois casos, I/O de disco por container sempre dava zero.
 
 ---
 

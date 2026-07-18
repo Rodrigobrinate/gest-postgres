@@ -20,6 +20,7 @@ func NewRouter(serverService *server.Service) http.Handler {
 
 	platform := NewPlatformHandler(serverService)
 	mux.HandleFunc("GET /api/v1/platform-stats", platform.Stats)
+	mux.HandleFunc("GET /api/v1/platform-stats-history", platform.StatsHistory)
 
 	servers := NewServersHandler(serverService)
 	mux.HandleFunc("POST /api/v1/servers", servers.Create)

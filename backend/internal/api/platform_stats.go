@@ -23,3 +23,7 @@ func (h *PlatformHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteJSON(w, http.StatusOK, stats)
 }
+
+func (h *PlatformHandler) StatsHistory(w http.ResponseWriter, r *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, h.service.GetPlatformStatsHistory())
+}

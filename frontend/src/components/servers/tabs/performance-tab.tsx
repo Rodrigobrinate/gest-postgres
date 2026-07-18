@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -36,6 +37,8 @@ const ORDER_OPTIONS = [
 
 export function PerformanceTab({ serverId, database }: { serverId: string; database: string }) {
   const [orderBy, setOrderBy] = useState<(typeof ORDER_OPTIONS)[number]["value"]>("total_time");
+  const [search, setSearch] = useState("");
+  const [minMeanMs, setMinMeanMs] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["servers", serverId, "slow-queries", database, orderBy],
@@ -115,21 +118,43 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
     );
   }
 
+  const minMeanMsNum = Number(minMeanMs);
+  const filteredQueries = (data?.queries ?? []).filter((q) => {
+    if (search.trim() && !q.query.toLowerCase().includes(search.trim().toLowerCase())) return false;
+    if (minMeanMs.trim() && !Number.isNaN(minMeanMsNum) && q.mean_exec_ms < minMeanMsNum) return false;
+    return true;
+  });
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <Select value={orderBy} onValueChange={(v) => v && setOrderBy(v as typeof orderBy)}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ORDER_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                Ordenar por: {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={orderBy} onValueChange={(v) => v && setOrderBy(v as typeof orderBy)}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ORDER_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  Ordenar por: {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="Buscar na query..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-56"
+          />
+          <Input
+            type="number"
+            placeholder="Tempo médio mín. (ms)"
+            value={minMeanMs}
+            onChange={(e) => setMinMeanMs(e.target.value)}
+            className="w-44"
+          />
+        </div>
         <Button size="sm" variant="outline" onClick={() => reset.mutate()} disabled={reset.isPending}>
           <RotateCcw className="size-3.5" />
           Zerar estatísticas
@@ -144,6 +169,8 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
             <p className="text-muted-foreground p-6 text-sm">
               Nenhuma query registrada ainda em &ldquo;{database}&rdquo;.
             </p>
+          ) : filteredQueries.length === 0 ? (
+            <p className="text-muted-foreground p-6 text-sm">Nenhuma query bate com o filtro.</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -158,7 +185,7 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.queries.map((q) => (
+                  {filteredQueries.map((q) => (
                     <TableRow key={q.query_id}>
                       <TableCell
                         className="max-w-md truncate font-mono text-xs"
