@@ -136,6 +136,21 @@ Todo gráfico (os 4 cards do dashboard e os 3 da aba Monitoramento de cada servi
 
 ---
 
+## Gestão genérica de Docker (fora do escopo original — pedido explícito, 2026-07-18)
+
+Pedido explícito do usuário, fora de ordem em relação ao MVP original ("não é só Postgres, quero gerenciar Docker de forma genérica") — autorização ampla, decidi arquitetura e implementei sem pausar. Plano completo em [docs/INFRA_PLAN.md](./docs/INFRA_PLAN.md). Nova seção "Docker" na tela inicial (`/infra`), separada da gestão de servidores Postgres.
+
+- [x] ~~Containers/networks/volumes genéricos~~ (start/stop/restart/remover qualquer container do host, não só servidores gerenciados; criar/remover rede e volume; ver logs) — reaproveita o `internal/docker` (Engine API via docker-socket-proxy) que já era genérico por baixo, só a camada `server` que era amarrada a "servidor cadastrado". Proteções: nunca deixa apagar as redes/volumes fixos da própria plataforma nem o volume de dados de um servidor gerenciado (esse tem fluxo próprio, com sua confirmação).
+- [x] ~~Deploy via `docker-compose.yml`~~ e ~~build via Dockerfile~~ (com ou sem contexto extra via upload `.tar`/`.tar.gz`) — backend chama `docker compose`/`docker build` via `os/exec` de dentro do próprio container (CLI instalado na imagem, fala pelo mesmo `DOCKER_HOST` do proxy) em vez de reimplementar orquestração de compose na unha. Nova categoria `BUILD` no docker-socket-proxy — `EXEC` continua desligado, nunca dá shell dentro de container gerenciado.
+- [x] ~~Traefik (reverse proxy) + domínio + SSL automático via Let's Encrypt~~ — container gerenciado, rotas via file provider (arquivo YAML por domínio, nunca precisa recriar o container alvo pra rotear), ACME HTTP-01 (só precisa da porta 80 alcançável, sem credencial de DNS). Provider Docker do próprio Traefik foi cortado — exigiria dar a ele leitura no Docker que ele não tem por design, e o file provider já cobre tudo que essa tela precisa.
+- [x] ~~Firewall do host (ufw)~~ — única peça que não dava pra fazer só com docker-socket-proxy, porque `ufw` mexe no namespace de rede do HOST, não do container. Solução: `firewall-agent/` é um binário Go separado (módulo próprio), roda direto no host via systemd (nunca em container), escuta só num socket Unix, só expõe listar/liberar/remover regra — nunca `ufw enable/disable/reset`, e a porta 22/tcp (SSH) nunca pode ser tocada por essa API em hipótese nenhuma (travado no código do agente). `setup.sh` instala ufw e libera 22/tcp **antes** de habilitar, ordem crítica pra nunca travar acesso SSH remoto.
+
+Achado nessa leva: `ufw status` não mostra nada enquanto o firewall tá inativo, mesmo com regra já gravada (`ufw show added` confirma que existe) — o agente cai pro `show added` quando detecta `ufw` inativo, senão a listagem mentia "vazio" no primeiro uso, antes do primeiro `ufw enable`.
+
+Testado ponta a ponta no droplet: stack real via compose (nginx respondendo na porta publicada), build com Dockerfile puro e com contexto via upload (arquivo copiado de verdade confirmado dentro da imagem), rota de domínio via Traefik roteando de verdade (`curl` com `Host:` forjado, sem DNS real) pro container alvo, e firewall-agent com `ufw` instalado mas deliberadamente **nunca habilitado** durante o teste (`ufw allow`/`delete` funcionam no ruleset independente do estado ativo/inativo) — testado assim de propósito pra nunca arriscar travar o próprio acesso SSH usado pra testar tudo isso.
+
+---
+
 ## Backlog pós-MVP ("perfumarias")
 
 Não implementar agora. Detalhe completo em REQUISITOS.md. Resumo do que fica pra depois:
