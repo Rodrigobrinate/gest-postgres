@@ -68,6 +68,10 @@ func NewRouter(serverService *server.Service) http.Handler {
 	mux.HandleFunc("GET /api/v1/servers/{id}/slow-queries", detail.SlowQueries)
 	mux.HandleFunc("POST /api/v1/servers/{id}/slow-queries/reset", detail.ResetQueryStats)
 	mux.HandleFunc("POST /api/v1/servers/{id}/query-stats/enable", detail.EnableQueryStats)
+	mux.HandleFunc("GET /api/v1/servers/{id}/hba-rules", detail.ListHbaRules)
+	mux.HandleFunc("POST /api/v1/servers/{id}/hba-rules", detail.AddHbaRule)
+	mux.HandleFunc("POST /api/v1/servers/{id}/hba-rules/delete", detail.DeleteHbaRule)
+
 	mux.HandleFunc("GET /api/v1/servers/{id}/config", detail.GetExpandedConfig)
 	mux.HandleFunc("PUT /api/v1/servers/{id}/config", detail.PutExpandedConfig)
 	mux.HandleFunc("GET /api/v1/servers/{id}/extensions", detail.Extensions)

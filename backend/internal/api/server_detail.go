@@ -44,6 +44,45 @@ func (h *DetailHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *DetailHandler) ListHbaRules(w http.ResponseWriter, r *http.Request) {
+	rules, err := h.service.ListHbaRules(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, rules)
+}
+
+func (h *DetailHandler) AddHbaRule(w http.ResponseWriter, r *http.Request) {
+	var in server.AddHbaRuleInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.AddHbaRule(r.Context(), r.PathValue("id"), in); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+}
+
+type deleteHbaRuleInput struct {
+	Raw string `json:"raw"`
+}
+
+func (h *DetailHandler) DeleteHbaRule(w http.ResponseWriter, r *http.Request) {
+	var in deleteHbaRuleInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.DeleteHbaRule(r.Context(), r.PathValue("id"), in.Raw); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *DetailHandler) RotateSuperuserPassword(w http.ResponseWriter, r *http.Request) {
 	password, err := h.service.RotateSuperuserPassword(r.Context(), r.PathValue("id"))
 	if err != nil {

@@ -48,7 +48,7 @@ Verificado ponta a ponta em droplet Debian real (wipe total → clone limpo → 
 - [x] ~~Form com os parâmetros mais impactantes: `max_connections`, `shared_buffers`, `work_mem`, `maintenance_work_mem`, `effective_cache_size`, `log_min_duration_statement`~~
 - [x] ~~Presets calculam esses valores automaticamente a partir do preset de recursos~~
 - [x] ~~Aplicar mudança → reload ou avisa que precisa restart~~
-- [ ] `pg_hba.conf` básico: tabela simples de regras (tipo, database, user, CIDR, método), sem drag-and-drop ainda
+- [x] ~~`pg_hba.conf` básico: tabela simples de regras (tipo, database, user, CIDR, método)~~, sem drag-and-drop ainda — aba Configuração. Lê/escreve o arquivo de dentro do container via API de archive do Docker (`docker cp` por baixo, GET/PUT `/containers/{id}/archive` — não é exec, superfície de ataque bem menor), recarrega via `pg_reload_conf()` sem restart. Regra nova sempre vai pro final do arquivo (não esconde regra mais restritiva já existente); sintaxe inválida faz o Postgres logar erro e manter as regras antigas em memória, não derruba conexão nem trava o servidor
 
 Achado e corrigido um bug de arquitetura sério aqui: a config inicial entrava como flag `-c` no comando do container, que tem prioridade MAIOR que `ALTER SYSTEM` — nenhuma edição pós-criação nunca ia pegar, nem com restart. Agora tudo (inicial e edições) passa por `ALTER SYSTEM` + reload/restart, mesmo caminho.
 

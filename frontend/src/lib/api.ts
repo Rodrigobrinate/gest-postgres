@@ -378,6 +378,24 @@ export interface CreateAlertRuleInput {
   webhook_url: string;
 }
 
+export interface HbaRule {
+  line: number;
+  type: string;
+  database: string;
+  user_name: string;
+  address: string;
+  method: string;
+  raw: string;
+}
+
+export interface AddHbaRuleInput {
+  type: string;
+  database: string;
+  user_name: string;
+  address: string;
+  method: string;
+}
+
 export interface RetentionPolicy {
   id: string;
   server_id: string;
@@ -714,6 +732,20 @@ export const api = {
       `/api/v1/servers/${id}/triggers/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/${encodeURIComponent(name)}?database=${encodeURIComponent(database)}`,
       { method: "DELETE" }
     ),
+
+  listHbaRules: (id: string) => request<HbaRule[]>(`/api/v1/servers/${id}/hba-rules`),
+
+  addHbaRule: (id: string, input: AddHbaRuleInput) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/hba-rules`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteHbaRule: (id: string, raw: string) =>
+    request<void>(`/api/v1/servers/${id}/hba-rules/delete`, {
+      method: "POST",
+      body: JSON.stringify({ raw }),
+    }),
 
   getConfig: (id: string, database: string) =>
     request<LiveParam[]>(`/api/v1/servers/${id}/config?database=${encodeURIComponent(database)}`),
