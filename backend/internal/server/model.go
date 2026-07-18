@@ -64,6 +64,12 @@ type Server struct {
 	ContainerName string `json:"container_name"`
 	VolumeName    string `json:"volume_name"`
 
+	PoolerEnabled       bool   `json:"pooler_enabled"`
+	PoolerContainerID   string `json:"-"`
+	PoolerContainerName string `json:"pooler_container_name,omitempty"`
+	PoolerHostPort      int    `json:"pooler_host_port,omitempty"`
+	PoolerPoolMode      string `json:"pooler_pool_mode"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

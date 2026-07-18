@@ -39,6 +39,10 @@ export interface ManagedServer {
   database_name: string;
   container_name: string;
   volume_name: string;
+  pooler_enabled: boolean;
+  pooler_container_name?: string;
+  pooler_host_port?: number;
+  pooler_pool_mode: string;
   created_at: string;
   updated_at: string;
 }
@@ -746,6 +750,17 @@ export const api = {
     request<void>(`/api/v1/servers/${id}/hba-rules/delete`, {
       method: "POST",
       body: JSON.stringify({ raw }),
+    }),
+
+  enablePooling: (id: string, poolMode: string) =>
+    request<ManagedServer>(`/api/v1/servers/${id}/pooling/enable`, {
+      method: "POST",
+      body: JSON.stringify({ pool_mode: poolMode }),
+    }),
+
+  disablePooling: (id: string) =>
+    request<{ status: string }>(`/api/v1/servers/${id}/pooling/disable`, {
+      method: "POST",
     }),
 
   getConfig: (id: string, database: string) =>

@@ -70,6 +70,15 @@ Achado e corrigido um bug sério do próprio Postgres nesse processo: `ALTER SYS
 
 Servidores criados antes dessa mudança continuam na imagem `postgres:X` antiga — sem pgvector/pg_cron disponíveis até serem recriados. Sem migração automática no MVP.
 
+### Connection pooling (PgBouncer)
+- [x] ~~Connection pooling gerenciado~~ — toggle "Habilitar"/"Desabilitar" na aba Configuração de cada servidor (card abaixo do form de parâmetros)
+
+Sobe um container `edoburu/pgbouncer` companheiro por servidor (nome `{container}-pgbouncer`, sem volume — é stateless, a imagem gera `pgbouncer.ini`/`userlist.txt` sozinha a partir de env vars no boot), numa porta publicada própria alocada da mesma faixa dos servidores. Cliente troca só a porta (mesmo usuário/senha/banco) e passa a falar com o pooler em vez do Postgres direto. Modo de pool escolhível (`transaction` default, `session`, `statement`).
+
+Achado no processo: `AUTH_TYPE=md5` (o default mais comum em tutoriais de pgbouncer) quebra contra qualquer role criada com o `password_encryption` default do Postgres desde a v10+ (`scram-sha-256`) — erro "wrong password type" tanto pro lado cliente→pgbouncer quanto pgbouncer→Postgres. Usa `AUTH_TYPE=scram-sha-256` de propósito.
+
+Excluir o servidor remove o pooler junto (best-effort, não trava a exclusão do Postgres se falhar). Rotacionar a senha do superuser recria o container do pooler com a senha nova — sem isso o pooler ficaria autenticando com credencial velha silenciosamente, mesma classe do bug de rotação de senha já corrigido antes (ver histórico de commits). Trocar a porta do Postgres (editar servidor) não precisa recriar o pooler — ele fala com o Postgres pelo nome do container, não pela porta publicada.
+
 ### Monitoramento
 - [x] ~~`pg_stat_activity` ao vivo (sessões, query atual, estado), botão cancelar/terminar sessão~~
 - [x] ~~Dashboard com gráfico de conexões ao longo do tempo~~ (+ gráfico de CPU/memória — histórico em memória, reseta se o backend reiniciar)

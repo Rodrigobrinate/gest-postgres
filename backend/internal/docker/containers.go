@@ -87,6 +87,78 @@ func (c *Client) CreateContainer(ctx context.Context, in CreateContainerInput) (
 	return created.ID, nil
 }
 
+// CreatePgBouncerInput descreve o container pgbouncer companheiro de um
+// Postgres gerenciado. Sem volume — é stateless, a config inteira
+// (pgbouncer.ini + userlist.txt) é gerada pela própria imagem a partir das
+// env vars no boot, então não precisa da tática de escrever arquivo via
+// archive API que o pg_hba.conf usa.
+type CreatePgBouncerInput struct {
+	Name        string
+	TargetHost  string // nome do container Postgres na rede gestpg-managed
+	Username    string
+	Password    string
+	DatabaseName string
+	PoolMode    string // session | transaction | statement
+	HostPort    int
+	NetworkName string
+	ServerID    string
+}
+
+func (c *Client) CreatePgBouncerContainer(ctx context.Context, in CreatePgBouncerInput) (string, error) {
+	portBinding := nat.PortMap{
+		"5432/tcp": []nat.PortBinding{
+			{HostIP: "0.0.0.0", HostPort: fmt.Sprintf("%d", in.HostPort)},
+		},
+	}
+
+	containerConfig := &container.Config{
+		Image: "edoburu/pgbouncer:latest",
+		Env: []string{
+			"DB_HOST=" + in.TargetHost,
+			"DB_PORT=5432",
+			"DB_USER=" + in.Username,
+			"DB_PASSWORD=" + in.Password,
+			"DB_NAME=" + in.DatabaseName,
+			"POOL_MODE=" + in.PoolMode,
+			"ADMIN_USERS=" + in.Username,
+			// scram-sha-256, não md5: password_encryption default do Postgres
+			// desde a v10/v14 é scram — um role criado com a senha padrão só
+			// tem verifier SCRAM guardado, então pgbouncer autenticando com
+			// MD5 (client E server-side) contra ele falha com "wrong password
+			// type". AUTH_TYPE aqui cobre os dois lados.
+			"AUTH_TYPE=scram-sha-256",
+		},
+		ExposedPorts: nat.PortSet{"5432/tcp": struct{}{}},
+		Labels: map[string]string{
+			LabelManaged:  "true",
+			LabelServerID: in.ServerID,
+			"gestpg.role": "pgbouncer",
+		},
+	}
+
+	hostConfig := &container.HostConfig{
+		PortBindings: portBinding,
+		RestartPolicy: container.RestartPolicy{
+			Name: "unless-stopped",
+		},
+	}
+
+	networkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: endpointsConfig(in.NetworkName),
+	}
+
+	created, err := c.cli.ContainerCreate(ctx, containerConfig, hostConfig, networkingConfig, nil, in.Name)
+	if err != nil {
+		return "", fmt.Errorf("criando container pgbouncer %s: %w", in.Name, err)
+	}
+
+	if err := c.cli.ContainerStart(ctx, created.ID, types.ContainerStartOptions{}); err != nil {
+		return created.ID, fmt.Errorf("iniciando container pgbouncer %s: %w", in.Name, err)
+	}
+
+	return created.ID, nil
+}
+
 // UpdateContainerResources troca limite de CPU/memória de um container
 // RODANDO sem recriar — o Docker suporta isso nativamente (diferente de
 // porta publicada, que é fixada na criação). Não reinicia o Postgres nem

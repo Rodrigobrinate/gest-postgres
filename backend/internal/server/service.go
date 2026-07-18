@@ -460,6 +460,13 @@ func (s *Service) Delete(ctx context.Context, id string, keepVolume bool) error 
 		return err
 	}
 	_ = s.repo.UpdateStatus(ctx, id, StatusRemoving)
+	if record.PoolerContainerID != "" {
+		// Best-effort: se falhar, a exclusão do servidor continua — não faz
+		// sentido travar a exclusão do Postgres por causa do companheiro de
+		// pooling (que fica órfão apontando pra um container que já não
+		// existe mais, mas isso não afeta nada, só sobra até ser limpo à mão).
+		_ = s.docker.RemoveContainer(ctx, record.PoolerContainerID, "", false)
+	}
 	if record.ContainerID != "" {
 		if err := s.docker.RemoveContainer(ctx, record.ContainerID, record.VolumeName, !keepVolume); err != nil {
 			s.markError(ctx, id)

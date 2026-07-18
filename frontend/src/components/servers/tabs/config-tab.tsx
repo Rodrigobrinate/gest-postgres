@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Search, Wand2 } from "lucide-react";
 import { HbaRules } from "../hba-rules";
+import { ConnectionPooling } from "../connection-pooling";
 
 export function ConfigTab({ serverId, database }: { serverId: string; database: string }) {
   const { data: params, isLoading } = useQuery({
@@ -185,6 +186,7 @@ export function ConfigTab({ serverId, database }: { serverId: string; database: 
         ))
       )}
 
+      <ConnectionPooling serverId={serverId} />
       <HbaRules serverId={serverId} />
     </div>
   );

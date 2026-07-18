@@ -368,6 +368,32 @@ func (h *DetailHandler) toggleExtension(w http.ResponseWriter, r *http.Request, 
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type enablePoolingInput struct {
+	PoolMode string `json:"pool_mode"`
+}
+
+func (h *DetailHandler) EnablePooling(w http.ResponseWriter, r *http.Request) {
+	var in enablePoolingInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	updated, err := h.service.EnablePooling(r.Context(), r.PathValue("id"), in.PoolMode)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, updated)
+}
+
+func (h *DetailHandler) DisablePooling(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DisablePooling(r.Context(), r.PathValue("id")); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *DetailHandler) Password(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	password, err := h.service.Password(r.Context(), id)

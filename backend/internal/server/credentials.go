@@ -68,6 +68,14 @@ func (s *Service) RotateSuperuserPassword(ctx context.Context, id string) (strin
 		return "", fmt.Errorf("falha ao salvar a nova senha, revertido com sucesso, nada mudou: %w", err)
 	}
 
+	if record.PoolerEnabled {
+		// Best-effort: a rotação em si já terminou com sucesso (Postgres +
+		// metadata DB), então uma falha aqui não desfaz isso — só deixa o
+		// pgbouncer com a senha antiga cravada até a próxima ação em cima
+		// dele, não deixa o servidor inteiro inacessível como o bug antigo.
+		_ = s.recreatePooler(ctx, record, newPassword)
+	}
+
 	return newPassword, nil
 }
 

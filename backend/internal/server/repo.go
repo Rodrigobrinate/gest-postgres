@@ -187,15 +187,55 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// MaxHostPort retorna a maior host_port já usada, pra alocação da próxima porta
-// livre partir dali. Retorna 0 se não houver nenhum servidor ainda.
+// MaxHostPort retorna a maior porta já usada (host_port OU pooler_host_port),
+// pra alocação da próxima porta livre partir dali — as duas compartilham a
+// mesma faixa, então precisam ser consideradas juntas pra nunca colidir.
+// Retorna 0 se não houver nenhum servidor ainda.
 func (r *Repo) MaxHostPort(ctx context.Context) (int, error) {
 	var max int
-	err := r.pool.QueryRow(ctx, `SELECT COALESCE(MAX(host_port), 0) FROM servers`).Scan(&max)
+	err := r.pool.QueryRow(ctx, `SELECT GREATEST(COALESCE(MAX(host_port), 0), COALESCE(MAX(pooler_host_port), 0)) FROM servers`).Scan(&max)
 	if err != nil {
 		return 0, fmt.Errorf("consultando maior host_port: %w", err)
 	}
 	return max, nil
+}
+
+// SetPooler grava o container pgbouncer recém-criado e habilita o pooling.
+func (r *Repo) SetPooler(ctx context.Context, id, containerID, containerName string, hostPort int, poolMode string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE servers SET
+			pooler_enabled = true, pooler_container_id = $1, pooler_container_name = $2,
+			pooler_host_port = $3, pooler_pool_mode = $4, updated_at = now()
+		WHERE id = $5
+	`, containerID, containerName, hostPort, poolMode, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fmt.Errorf("%w: porta %d já está em uso", ErrValidation, hostPort)
+		}
+		return fmt.Errorf("gravando pooler do servidor %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearPooler desliga o pooling e limpa o registro do container removido.
+func (r *Repo) ClearPooler(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE servers SET
+			pooler_enabled = false, pooler_container_id = '', pooler_container_name = '',
+			pooler_host_port = NULL, updated_at = now()
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("limpando pooler do servidor %s: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 const selectColumns = `
@@ -206,6 +246,8 @@ const selectColumns = `
 		maintenance_work_mem_mb, effective_cache_size_mb, log_min_duration_statement_ms,
 		host_port, username, password_encrypted, database_name,
 		container_id, container_name, volume_name,
+		pooler_enabled, pooler_container_id, pooler_container_name,
+		COALESCE(pooler_host_port, 0), pooler_pool_mode,
 		created_at, updated_at
 	FROM servers
 `
@@ -223,6 +265,8 @@ func scanServer(row scanner) (*Server, error) {
 		&s.Config.MaintenanceWorkMemMB, &s.Config.EffectiveCacheSizeMB, &s.Config.LogMinDurationStatementMs,
 		&s.HostPort, &s.Username, &s.PasswordEncrypted, &s.DatabaseName,
 		&s.ContainerID, &s.ContainerName, &s.VolumeName,
+		&s.PoolerEnabled, &s.PoolerContainerID, &s.PoolerContainerName,
+		&s.PoolerHostPort, &s.PoolerPoolMode,
 		&s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
