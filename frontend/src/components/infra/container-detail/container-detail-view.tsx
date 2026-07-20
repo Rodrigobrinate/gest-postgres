@@ -160,7 +160,7 @@ export function ContainerDetailView({ containerId }: { containerId: string }) {
           <StatsTab containerId={containerId} />
         </TabsContent>
         <TabsContent value="env" className="pt-4">
-          <EnvTab env={detail.env} />
+          <EnvTab env={detail.env} containerId={containerId} />
         </TabsContent>
         <TabsContent value="logs" className="pt-4">
           <ContainerLogsPane containerId={containerId} />

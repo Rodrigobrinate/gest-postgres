@@ -142,6 +142,7 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/stats-history", infraHandler.ContainerStatsHistory)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/networks", infraHandler.ConnectContainerNetwork)
 	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/networks/{networkName}", infraHandler.DisconnectContainerNetwork)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/env", infraHandler.UpdateContainerEnv)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/volumes", infraHandler.AttachContainerVolume)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/resources", infraHandler.UpdateContainerResources)
 	mux.HandleFunc("POST /api/v1/infra/system-prune", infraHandler.SystemPrune)

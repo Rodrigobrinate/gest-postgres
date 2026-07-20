@@ -154,6 +154,24 @@ func (h *InfraHandler) UpdateContainerResources(w http.ResponseWriter, r *http.R
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+type updateEnvInput struct {
+	Env map[string]string `json:"env"`
+}
+
+func (h *InfraHandler) UpdateContainerEnv(w http.ResponseWriter, r *http.Request) {
+	var in updateEnvInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	newID, err := h.service.UpdateContainerEnv(r.Context(), r.PathValue("containerId"), in.Env)
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"id": newID})
+}
+
 func (h *InfraHandler) AttachContainerVolume(w http.ResponseWriter, r *http.Request) {
 	var in infra.AttachVolumeInput
 	if err := httpx.DecodeJSON(r, &in); err != nil {

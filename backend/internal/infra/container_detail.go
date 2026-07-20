@@ -31,6 +31,21 @@ func (s *Service) DisconnectContainerNetwork(ctx context.Context, containerID, n
 	return s.docker.DisconnectNetwork(ctx, networkName, containerID, false)
 }
 
+// UpdateContainerEnv recria o container com variáveis de ambiente novas —
+// Docker não suporta trocar env var de container rodando, só recriando
+// (mesma limitação/mecanismo do anexar volume). O ID do container MUDA
+// depois dessa chamada.
+func (s *Service) UpdateContainerEnv(ctx context.Context, containerID string, env map[string]string) (string, error) {
+	envList := make([]string, 0, len(env))
+	for k, v := range env {
+		if k == "" {
+			continue
+		}
+		envList = append(envList, k+"="+v)
+	}
+	return s.docker.RecreateContainerWithEnv(ctx, containerID, envList)
+}
+
 type AttachVolumeInput struct {
 	VolumeName string `json:"volume_name"`
 	MountPath  string `json:"mount_path"`

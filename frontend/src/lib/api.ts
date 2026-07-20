@@ -1461,6 +1461,12 @@ export const api = {
       body: JSON.stringify({ cpu_cores: cpuCores, memory_mb: memoryMb }),
     }),
 
+  updateContainerEnv: (id: string, env: Record<string, string>) =>
+    request<{ id: string }>(`/api/v1/infra/containers/${id}/env`, {
+      method: "POST",
+      body: JSON.stringify({ env }),
+    }),
+
   attachContainerVolume: (
     id: string,
     input: { volume_name: string; mount_path: string; read_only: boolean }
