@@ -3,179 +3,308 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>gest-postgres — gestão de PostgreSQL em Docker</title>
-<meta name="description" content="Plataforma self-hosted pra provisionar, configurar e monitorar servidores PostgreSQL em Docker, com um comando." />
+<title>gest-postgres</title>
+<meta name="description" content="Provisiona, configura e monitora servidores PostgreSQL em Docker — self-hosted, um comando pra instalar." />
 <style>
   :root {
-    --bg: #0b0f14;
-    --bg-card: #121821;
-    --border: #232b36;
-    --text: #e6edf3;
-    --muted: #8b98a5;
-    --accent: #4f9cf9;
-    --accent-2: #6ee7b7;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --ink: #0a0e0c;
+    --panel: #0f1a15;
+    --line: #24352c;
+    --paper: #ece5d6;
+    --muted: #859285;
+    --amber: #e3a542;
+    --teal: #5fae95;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   }
+
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+
   body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(95, 174, 149, 0.10), transparent 60%),
+      var(--ink);
+    color: var(--paper);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; }
-  header.hero { padding: 96px 0 56px; text-align: center; }
-  .badge {
-    display: inline-block;
-    font-size: 12px;
-    color: var(--accent-2);
-    background: rgba(110, 231, 183, 0.08);
-    border: 1px solid rgba(110, 231, 183, 0.25);
-    border-radius: 999px;
-    padding: 4px 12px;
-    margin-bottom: 20px;
-    letter-spacing: 0.02em;
-  }
-  h1 {
-    font-size: clamp(32px, 5vw, 48px);
-    margin: 0 0 16px;
-    letter-spacing: -0.02em;
-  }
-  h1 span { color: var(--accent); }
-  .subtitle {
-    color: var(--muted);
-    font-size: 18px;
-    max-width: 620px;
-    margin: 0 auto 40px;
-  }
-  .cmd-box {
-    position: relative;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px 60px 20px 20px;
-    text-align: left;
-    max-width: 720px;
-    margin: 0 auto;
-  }
-  .cmd-box code {
+
+  a { color: var(--teal); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- hero / terminal ---------- */
+
+  header.hero { padding: 88px 0 24px; }
+
+  .kicker {
     font-family: var(--mono);
-    font-size: 14px;
-    color: var(--accent-2);
+    font-size: 12.5px;
+    color: var(--teal);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 14px;
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: clamp(28px, 5.2vw, 42px);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+    color: var(--paper);
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--amber);
+  }
+
+  .dek {
+    font-size: 16.5px;
+    color: var(--muted);
+    max-width: 54ch;
+    margin: 0 0 40px;
+  }
+
+  .term {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    overflow: hidden;
+    box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
+  }
+
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.015);
+  }
+  .term-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .term-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: 6px;
+  }
+
+  .term-body {
+    padding: 22px 20px 24px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+  }
+
+  .term-line {
+    color: var(--muted);
     white-space: pre-wrap;
+    word-break: break-word;
+    opacity: 0;
+    animation: reveal 0.4s ease forwards;
+  }
+  .term-line:nth-child(1) { animation-delay: 0.1s; }
+  .term-line:nth-child(2) { animation-delay: 0.5s; }
+  .term-line:nth-child(3) { animation-delay: 0.9s; }
+  .term-line.blank { height: 14px; animation-delay: 1.1s; }
+
+  .prompt-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 4px;
+    opacity: 0;
+    animation: reveal 0.5s ease forwards;
+    animation-delay: 1.3s;
+  }
+  .prompt-sign { color: var(--amber); flex-shrink: 0; }
+  .prompt-cmd {
+    color: var(--paper);
     word-break: break-all;
+    flex: 1;
+  }
+  .cursor {
+    display: inline-block;
+    width: 7px;
+    height: 15px;
+    background: var(--amber);
+    margin-left: 2px;
+    transform: translateY(2px);
+    animation: blink 1s step-end infinite;
+  }
+
+  .copy-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 14px;
+    opacity: 0;
+    animation: reveal 0.5s ease forwards;
+    animation-delay: 1.5s;
   }
   .copy-btn {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    background: var(--border);
-    color: var(--text);
-    border: none;
-    border-radius: 8px;
-    padding: 8px 12px;
+    font-family: var(--mono);
     font-size: 12px;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 5px 10px;
     cursor: pointer;
-    font-family: inherit;
   }
-  .copy-btn:hover { background: #2c3644; }
-  .copy-btn.copied { background: var(--accent-2); color: #06281c; }
-  .requisitos {
+  .copy-btn:hover { color: var(--paper); border-color: var(--teal); }
+  .copy-btn.copied { color: var(--teal); border-color: var(--teal); }
+
+  .req {
+    font-family: var(--mono);
+    font-size: 12.5px;
     color: var(--muted);
-    font-size: 13px;
-    margin-top: 14px;
+    margin: 16px 2px 0;
   }
-  section.features {
-    padding: 40px 0 80px;
-    border-top: 1px solid var(--border);
+
+  @keyframes reveal { to { opacity: 1; } }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .term-line, .prompt-row, .copy-row { animation: none; opacity: 1; }
+    .cursor { animation: none; }
   }
-  .grid {
+
+  /* ---------- manifest ---------- */
+
+  section.manifest {
+    padding: 56px 0 40px;
+    border-top: 1px solid var(--line);
+    margin-top: 56px;
+  }
+  .manifest-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 22px;
+  }
+
+  ul.units { list-style: none; margin: 0; padding: 0; }
+  .unit {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 20px;
-    margin-top: 32px;
+    grid-template-columns: 14px 148px 1fr;
+    gap: 16px;
+    align-items: baseline;
+    padding: 13px 0;
+    border-top: 1px solid var(--line);
   }
-  .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 20px;
+  .unit:first-child { border-top: none; }
+  .unit-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--teal);
+    transform: translateY(-1px);
   }
-  .card h3 { margin: 0 0 8px; font-size: 15px; }
-  .card p { margin: 0; color: var(--muted); font-size: 13px; }
-  footer {
-    text-align: center;
-    padding: 32px 0 64px;
-    color: var(--muted);
+  .unit-name {
+    font-family: var(--mono);
     font-size: 13px;
-    border-top: 1px solid var(--border);
+    color: var(--paper);
+    white-space: nowrap;
   }
-  footer a { color: var(--accent); text-decoration: none; }
+  .unit-desc {
+    font-size: 14.5px;
+    color: var(--muted);
+  }
+  .unit-desc code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    color: var(--teal);
+  }
+
+  @media (max-width: 620px) {
+    .unit { grid-template-columns: 14px 1fr; }
+    .unit-desc { grid-column: 2; }
+  }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    padding: 40px 0 72px;
+    border-top: 1px solid var(--line);
+    margin-top: 24px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  footer a { text-decoration: none; }
   footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
   <div class="wrap">
     <header class="hero">
-      <span class="badge">self-hosted · Docker · open source</span>
-      <h1>Gerencie servidores <span>PostgreSQL</span><br>em Docker, visualmente</h1>
-      <p class="subtitle">
-        Provisiona instâncias, ajusta config (do preset simples ao parâmetro
-        avançado), habilita extensões, monitora métricas e agenda backups —
-        tudo por uma UI, sem tocar em SQL na mão.
+      <p class="kicker">self-hosted &middot; postgres em docker</p>
+      <h1>Um servidor <em>Postgres</em><br>não deveria dar trabalho.</h1>
+      <p class="dek">
+        gest-postgres provisiona, configura e monitora instâncias PostgreSQL
+        rodando em Docker por uma UI — do preset de memória ao parâmetro fino,
+        sem editar <code style="font-family:var(--mono)">postgresql.conf</code>
+        na mão.
       </p>
 
-      <div class="cmd-box">
-        <code id="cmd">git clone https://github.com/Rodrigobrinate/gest-postgres.git && cd gest-postgres && sudo ./setup.sh</code>
-        <button class="copy-btn" id="copyBtn" onclick="copyCmd()">Copiar</button>
+      <div class="term" role="group" aria-label="comando de instalação">
+        <div class="term-bar">
+          <span class="term-dot"></span><span class="term-dot"></span><span class="term-dot"></span>
+          <span class="term-title">root@servidor &mdash; instalação</span>
+        </div>
+        <div class="term-body">
+          <div class="term-line">Debian/Ubuntu com root &middot; docker instalado automaticamente se faltar</div>
+          <div class="term-line blank"></div>
+          <div class="term-line">verificando dependências... ok</div>
+          <div class="prompt-row">
+            <span class="prompt-sign">$</span>
+            <span class="prompt-cmd" id="cmd">git clone https://github.com/Rodrigobrinate/gest-postgres.git && cd gest-postgres && sudo ./setup.sh<span class="cursor" aria-hidden="true"></span></span>
+          </div>
+          <div class="copy-row">
+            <button class="copy-btn" id="copyBtn" onclick="copyCmd()">copiar comando</button>
+          </div>
+        </div>
       </div>
-      <p class="requisitos">Debian/Ubuntu com root · instala Docker sozinho · idempotente, pode rodar de novo</p>
+      <p class="req">idempotente &mdash; roda de novo sem quebrar nada já instalado</p>
     </header>
 
-    <section class="features">
-      <div class="grid">
-        <div class="card">
-          <h3>Provisionamento</h3>
-          <p>Cria servidor com volume + rede isolada, presets de recursos (Pequeno/Médio/Grande), start/stop/restart/excluir pela UI.</p>
-        </div>
-        <div class="card">
-          <h3>Configuração visual</h3>
-          <p>~86 parâmetros do postgresql.conf agrupados por categoria, aplica via ALTER SYSTEM + reload, sem editar arquivo.</p>
-        </div>
-        <div class="card">
-          <h3>Extensões</h3>
-          <p>pg_stat_statements, uuid-ossp, pgcrypto, pg_trgm, pgvector, pg_cron e qualquer outra disponível — um clique.</p>
-        </div>
-        <div class="card">
-          <h3>Monitoramento</h3>
-          <p>pg_stat_activity ao vivo, gráficos de conexões/CPU/memória, top queries lentas, log tail.</p>
-        </div>
-        <div class="card">
-          <h3>Backup / Restore</h3>
-          <p>pg_dump agendado (local ou Google Drive), retenção configurável, restore sobrescrevendo ou em banco novo.</p>
-        </div>
-        <div class="card">
-          <h3>Gestão Docker genérica</h3>
-          <p>Terminal web em qualquer container, file manager, deploy via compose/Dockerfile/Git com webhook, Traefik, firewall.</p>
-        </div>
-      </div>
+    <section class="manifest">
+      <p class="manifest-label">o que ele gerencia</p>
+      <ul class="units">
+        <li class="unit"><span class="unit-dot"></span><span class="unit-name">provisioning</span><span class="unit-desc">volume nomeado + rede isolada por servidor, presets de recursos, start/stop/restart pela UI</span></li>
+        <li class="unit"><span class="unit-dot"></span><span class="unit-name">configuration</span><span class="unit-desc">~86 parâmetros do <code>postgresql.conf</code> agrupados por categoria, aplica via <code>ALTER SYSTEM</code></span></li>
+        <li class="unit"><span class="unit-dot"></span><span class="unit-name">extensions</span><span class="unit-desc"><code>pg_stat_statements</code>, <code>pgvector</code>, <code>pg_cron</code> e qualquer outra disponível, um clique</span></li>
+        <li class="unit"><span class="unit-dot"></span><span class="unit-name">monitoring</span><span class="unit-desc"><code>pg_stat_activity</code> ao vivo, gráficos de CPU/conexões, top queries lentas, log estruturado</span></li>
+        <li class="unit"><span class="unit-dot"></span><span class="unit-name">backup</span><span class="unit-desc"><code>pg_dump</code> agendado, local ou Google Drive, restore sobrescrevendo ou em banco novo</span></li>
+        <li class="unit"><span class="unit-dot"></span><span class="unit-name">docker</span><span class="unit-desc">terminal web, gerenciador de arquivos, deploy via compose/Dockerfile/Git, Traefik, firewall</span></li>
+      </ul>
     </section>
 
     <footer>
       <a href="https://github.com/Rodrigobrinate/gest-postgres">github.com/Rodrigobrinate/gest-postgres</a>
+      <span>sem telemetria &middot; sem conta &middot; roda no seu servidor</span>
     </footer>
   </div>
 
   <script>
     function copyCmd() {
-      var text = document.getElementById('cmd').textContent;
+      var text = document.getElementById('cmd').textContent.trim();
       var btn = document.getElementById('copyBtn');
       navigator.clipboard.writeText(text).then(function () {
-        btn.textContent = 'Copiado!';
+        btn.textContent = 'copiado';
         btn.classList.add('copied');
         setTimeout(function () {
-          btn.textContent = 'Copiar';
+          btn.textContent = 'copiar comando';
           btn.classList.remove('copied');
         }, 1800);
       });
