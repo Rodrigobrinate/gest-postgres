@@ -15,6 +15,7 @@ import { EnvTab } from "./env-tab";
 import { NetworksTab } from "./networks-tab";
 import { VolumesTab } from "./volumes-tab";
 import { FilesTab } from "./files-tab";
+import { CronTab } from "./cron-tab";
 import { TerminalTab } from "./terminal-tab";
 import { ContainerLogsPane } from "@/components/infra/container-logs-pane";
 
@@ -148,11 +149,12 @@ export function ContainerDetailView({ containerId }: { containerId: string }) {
           <TabsTrigger value="networks">Redes</TabsTrigger>
           <TabsTrigger value="volumes">Volumes</TabsTrigger>
           <TabsTrigger value="files">Arquivos</TabsTrigger>
+          <TabsTrigger value="cron">Cron</TabsTrigger>
           <TabsTrigger value="terminal">Terminal</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="pt-4">
-          <OverviewTab detail={detail} />
+          <OverviewTab detail={detail} containerId={containerId} />
         </TabsContent>
         <TabsContent value="stats" className="pt-4">
           <StatsTab containerId={containerId} />
@@ -175,6 +177,9 @@ export function ContainerDetailView({ containerId }: { containerId: string }) {
         </TabsContent>
         <TabsContent value="files" className="pt-4">
           <FilesTab containerId={containerId} mounts={detail.mounts} />
+        </TabsContent>
+        <TabsContent value="cron" className="pt-4">
+          <CronTab containerId={containerId} containerName={detail.name} />
         </TabsContent>
         <TabsContent value="terminal" className="pt-4">
           <TerminalTab containerId={containerId} />

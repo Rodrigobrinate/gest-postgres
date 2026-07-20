@@ -14,6 +14,9 @@ volumes:
   # num volume nomeado, não bind mount, pelo mesmo motivo dos volumes dos
   # servidores gerenciados (sobrevive a recriação do container do backend).
   backups_data:
+  # Snapshots .tar.gz de volume genérico (aba Docker > Volumes > Backup) —
+  # mesmo raciocínio dos outros: volume nomeado, nunca bind mount do host.
+  generic_backups_data:
   # Arquivos de docker-compose.yml/Dockerfile enviados pela tela de "Docker"
   # (deploy via compose, build via Dockerfile) — mesmo raciocínio dos outros
   # dois volumes acima, sobrevive a recriação do container do backend.
@@ -99,6 +102,7 @@ services:
       # de /etc acima (read-only, só pra medir disco via statfs).
       - ${HOST_FILES_ROOT:-/srv/gestpg-files}:/hostfiles
       - backups_data:/backups
+      - generic_backups_data:/generic-backups
       - stacks_data:/stacks
       - traefik_dynamic_data:/traefik-dynamic
       # firewall-agent roda no HOST via systemd (ver setup.sh), nunca em

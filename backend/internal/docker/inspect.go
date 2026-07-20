@@ -40,6 +40,9 @@ type ContainerDetail struct {
 	Command       []string                   `json:"command"`
 	Mounts        []MountInfo                `json:"mounts"`
 	Networks      map[string]NetworkEndpoint `json:"networks"`
+	// CPUCores/MemoryMB: 0 = sem limite configurado (Docker default).
+	CPUCores float64 `json:"cpu_cores"`
+	MemoryMB int64   `json:"memory_mb"`
 }
 
 func (c *Client) InspectContainerFull(ctx context.Context, containerID string) (ContainerDetail, error) {
@@ -71,6 +74,12 @@ func (c *Client) InspectContainerFull(ctx context.Context, containerID string) (
 	}
 	if info.HostConfig != nil {
 		detail.RestartPolicy = info.HostConfig.RestartPolicy.Name
+		if info.HostConfig.NanoCPUs > 0 {
+			detail.CPUCores = float64(info.HostConfig.NanoCPUs) / 1e9
+		}
+		if info.HostConfig.Memory > 0 {
+			detail.MemoryMB = info.HostConfig.Memory / 1024 / 1024
+		}
 	}
 	for _, m := range info.Mounts {
 		detail.Mounts = append(detail.Mounts, MountInfo{

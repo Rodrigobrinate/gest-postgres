@@ -63,6 +63,7 @@ function Chart<T extends PointWithTimestamp>({
             const n = Number(value);
             return [formatValue ? formatValue(n) : `${n.toFixed(1)}${unit ?? ""}`, title];
           }}
+          cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "3 3", strokeWidth: 1 }}
           contentStyle={{
             fontSize: 12,
             borderRadius: 8,
@@ -76,7 +77,7 @@ function Chart<T extends PointWithTimestamp>({
           stroke={color}
           strokeWidth={2}
           dot={false}
-          activeDot={{ r: 4 }}
+          activeDot={{ r: 5, stroke: "var(--background)", strokeWidth: 2 }}
           isAnimationActive={false}
         />
       </LineChart>

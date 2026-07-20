@@ -284,6 +284,24 @@ func (c *Client) ListManagedContainers(ctx context.Context) ([]types.Container, 
 	return containers, nil
 }
 
+// FindContainerIDByName procura um container pelo nome exato (âncoras de
+// regex — sem isso o filtro de nome do Docker também casa substring) —
+// usado pelo redeploy via webhook pra saber se já existe um container
+// antigo com esse nome pra derrubar antes de subir o novo.
+func (c *Client) FindContainerIDByName(ctx context.Context, name string) (string, error) {
+	containers, err := c.cli.ContainerList(ctx, types.ContainerListOptions{
+		All:     true,
+		Filters: filters.NewArgs(filters.Arg("name", "^/"+name+"$")),
+	})
+	if err != nil {
+		return "", fmt.Errorf("procurando container %s: %w", name, err)
+	}
+	if len(containers) == 0 {
+		return "", nil
+	}
+	return containers[0].ID, nil
+}
+
 // ListAllContainers lista TODOS os containers do host (não só os gerenciados
 // pela plataforma) — usado só pela auto-descoberta, que precisa enxergar o
 // que já existe fora do nosso controle pra sugerir cadastro.

@@ -11,6 +11,7 @@ import { BuildTab } from "@/components/infra/build-tab";
 import { TraefikTab } from "@/components/infra/traefik-tab";
 import { FirewallTab } from "@/components/infra/firewall-tab";
 import { HostFilesTab } from "@/components/infra/host-files-tab";
+import { GitDeploymentsTab } from "@/components/infra/git-deployments-tab";
 
 export default function InfraPage() {
   return (
@@ -47,6 +48,7 @@ export default function InfraPage() {
           <TabsTrigger value="traefik">Traefik</TabsTrigger>
           <TabsTrigger value="firewall">Firewall</TabsTrigger>
           <TabsTrigger value="host-files">Arquivos do host</TabsTrigger>
+          <TabsTrigger value="git-deployments">Deploy automático</TabsTrigger>
         </TabsList>
 
         <TabsContent value="containers" className="pt-4">
@@ -72,6 +74,9 @@ export default function InfraPage() {
         </TabsContent>
         <TabsContent value="host-files" className="pt-4">
           <HostFilesTab />
+        </TabsContent>
+        <TabsContent value="git-deployments" className="pt-4">
+          <GitDeploymentsTab />
         </TabsContent>
       </Tabs>
     </div>

@@ -98,6 +98,11 @@ type CreateGenericContainerInput struct {
 	NetworkName          string
 	Labels               map[string]string
 	RestartUnlessStopped bool
+	// CPUCores/MemoryMB: 0 = sem limite (Docker default, usa o que o host
+	// tiver disponível) — mesma convenção de "0 é sem limite" usada em
+	// outros pontos do projeto.
+	CPUCores float64
+	MemoryMB int
 }
 
 // CreateGenericContainer é o irmão flexível de CreateContainer — usado por
@@ -131,6 +136,10 @@ func (c *Client) CreateGenericContainer(ctx context.Context, in CreateGenericCon
 		PortBindings:  portBindings,
 		Binds:         in.Binds,
 		RestartPolicy: restartPolicy,
+		Resources: container.Resources{
+			NanoCPUs: int64(in.CPUCores * 1e9),
+			Memory:   int64(in.MemoryMB) * 1024 * 1024,
+		},
 	}
 	var networkingConfig *network.NetworkingConfig
 	if in.NetworkName != "" {

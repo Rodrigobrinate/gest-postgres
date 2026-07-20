@@ -16,6 +16,13 @@ func (s *Service) ContainerStats(ctx context.Context, id string) (docker.Contain
 	return s.docker.ContainerStats(ctx, id)
 }
 
+// UpdateContainerResources troca CPU/memória de um container RODANDO sem
+// recriar — mesmo mecanismo já usado pra servidor Postgres gerenciado
+// (ver server.Service), agora exposto pra container genérico também.
+func (s *Service) UpdateContainerResources(ctx context.Context, containerID string, cpuCores float64, memoryMB int) error {
+	return s.docker.UpdateContainerResources(ctx, containerID, cpuCores, memoryMB)
+}
+
 func (s *Service) ConnectContainerNetwork(ctx context.Context, containerID, networkName string) error {
 	return s.docker.ConnectNetwork(ctx, networkName, containerID)
 }

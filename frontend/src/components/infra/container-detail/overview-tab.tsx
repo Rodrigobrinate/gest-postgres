@@ -1,6 +1,15 @@
+"use client";
+
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { ContainerDetail } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { api, ApiError, type ContainerDetail } from "@/lib/api";
+import { Cpu } from "lucide-react";
 
 function formatDate(iso?: string) {
   if (!iso) return "—";
@@ -9,8 +18,27 @@ function formatDate(iso?: string) {
   return d.toLocaleString("pt-BR");
 }
 
-export function OverviewTab({ detail }: { detail: ContainerDetail }) {
+export function OverviewTab({
+  detail,
+  containerId,
+}: {
+  detail: ContainerDetail;
+  containerId: string;
+}) {
   const labelEntries = Object.entries(detail.labels ?? {});
+
+  const queryClient = useQueryClient();
+  const [cpu, setCpu] = useState(detail.cpu_cores ? String(detail.cpu_cores) : "");
+  const [memory, setMemory] = useState(detail.memory_mb ? String(detail.memory_mb) : "");
+
+  const updateResources = useMutation({
+    mutationFn: () => api.updateContainerResources(containerId, cpu ? Number(cpu) : 0, memory ? Number(memory) : 0),
+    onSuccess: () => {
+      toast.success("Recursos atualizados");
+      queryClient.invalidateQueries({ queryKey: ["infra-container-detail", containerId] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao atualizar recursos"),
+  });
 
   return (
     <div className="grid gap-4">
@@ -39,6 +67,48 @@ export function OverviewTab({ detail }: { detail: ContainerDetail }) {
           <div className="font-mono text-xs">{detail.restart_policy || "—"}</div>
           <div className="text-muted-foreground">Comando</div>
           <div className="font-mono text-xs">{detail.command?.join(" ") || "—"}</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-1.5">
+            <Cpu className="size-4" />
+            Recursos
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-1.5">
+            <Label>CPU (cores)</Label>
+            <Input
+              type="number"
+              step="0.1"
+              min="0"
+              value={cpu}
+              onChange={(e) => setCpu(e.target.value)}
+              placeholder="sem limite"
+              className="w-32"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Memória (MB)</Label>
+            <Input
+              type="number"
+              step="1"
+              min="0"
+              value={memory}
+              onChange={(e) => setMemory(e.target.value)}
+              placeholder="sem limite"
+              className="w-32"
+            />
+          </div>
+          <Button disabled={updateResources.isPending} onClick={() => updateResources.mutate()}>
+            {updateResources.isPending ? "Aplicando..." : "Aplicar"}
+          </Button>
+          <p className="text-muted-foreground w-full text-xs">
+            Aplica na hora, sem recriar o container nem derrubar conexão. Deixar em branco remove o
+            limite.
+          </p>
         </CardContent>
       </Card>
 

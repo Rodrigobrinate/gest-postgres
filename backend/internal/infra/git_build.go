@@ -115,6 +115,8 @@ type CreateContainerFromGitInput struct {
 	Env          map[string]string `json:"env"`
 	Ports        map[string]int    `json:"ports"`
 	NetworkName  string            `json:"network"`
+	CPUCores     float64           `json:"cpu_cores,omitempty"`
+	MemoryMB     int               `json:"memory_mb,omitempty"`
 }
 
 // CreateContainerFromGit encadeia CloneAndBuild -> CreateContainerFromImage.
@@ -135,6 +137,8 @@ func (s *Service) CreateContainerFromGit(ctx context.Context, in CreateContainer
 		Env:         in.Env,
 		Ports:       in.Ports,
 		NetworkName: in.NetworkName,
+		CPUCores:    in.CPUCores,
+		MemoryMB:    in.MemoryMB,
 	})
 	if err != nil {
 		return "", result, err

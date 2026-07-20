@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -24,8 +23,15 @@ const (
 
 type Session struct {
 	ID            string
+	UserID        string
+	Username      string
+	Role          Role
 	ExpiresAt     time.Time
 	ElevatedUntil *time.Time
+}
+
+func (s *Session) IsAdmin() bool {
+	return s.Role == RoleAdmin
 }
 
 // Elevated diz se essa sessão passou por reconfirmação de senha (step-up)
@@ -48,23 +54,22 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Login confere usuário/senha contra o admin_user singleton e cria uma
-// sessão nova. Retorna o token em texto puro — só existe nesse retorno, o
-// banco guarda somente o hash (mesmo raciocínio de nunca persistir segredo
-// em texto puro usado no resto do projeto, ver internal/crypto).
+// Login confere usuário/senha contra a tabela users e cria uma sessão nova.
+// Retorna o token em texto puro — só existe nesse retorno, o banco guarda
+// somente o hash (mesmo raciocínio de nunca persistir segredo em texto
+// puro usado no resto do projeto, ver internal/crypto).
 func (s *Service) Login(ctx context.Context, username, password string) (string, error) {
-	var storedUsername, hash string
-	err := s.pool.QueryRow(ctx, `SELECT username, password_hash FROM admin_user WHERE id = 1`).Scan(&storedUsername, &hash)
+	var userID, hash string
+	var role Role
+	err := s.pool.QueryRow(ctx, `SELECT id::text, password_hash, role FROM users WHERE username = $1`, username).
+		Scan(&userID, &hash, &role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrInvalidCredentials
 		}
-		return "", fmt.Errorf("lendo admin: %w", err)
+		return "", fmt.Errorf("lendo usuário: %w", err)
 	}
 
-	if subtle.ConstantTimeCompare([]byte(username), []byte(storedUsername)) != 1 {
-		return "", ErrInvalidCredentials
-	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		return "", ErrInvalidCredentials
 	}
@@ -75,9 +80,9 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	}
 
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO admin_sessions (token_hash, expires_at)
-		VALUES ($1, $2)
-	`, hashToken(token), time.Now().Add(sessionTTL))
+		INSERT INTO admin_sessions (token_hash, user_id, expires_at)
+		VALUES ($1, $2, $3)
+	`, hashToken(token), userID, time.Now().Add(sessionTTL))
 	if err != nil {
 		return "", fmt.Errorf("criando sessão: %w", err)
 	}
@@ -91,8 +96,9 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	return nil
 }
 
-// ValidateSession confere o token e estende a expiração (janela deslizante)
-// — uso contínuo da plataforma nunca expira no meio, só inatividade real.
+// ValidateSession confere o token, estende a expiração (janela deslizante
+// — uso contínuo da plataforma nunca expira no meio, só inatividade real)
+// e carrega usuário/papel numa tacada só (join com users).
 func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, error) {
 	if token == "" {
 		return nil, ErrInvalidCredentials
@@ -101,10 +107,11 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 
 	var sess Session
 	err := s.pool.QueryRow(ctx, `
-		SELECT id::text, expires_at, elevated_until
-		FROM admin_sessions
-		WHERE token_hash = $1 AND expires_at > now()
-	`, th).Scan(&sess.ID, &sess.ExpiresAt, &sess.ElevatedUntil)
+		SELECT s.id::text, s.expires_at, s.elevated_until, u.id::text, u.username, u.role
+		FROM admin_sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.token_hash = $1 AND s.expires_at > now()
+	`, th).Scan(&sess.ID, &sess.ExpiresAt, &sess.ElevatedUntil, &sess.UserID, &sess.Username, &sess.Role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrInvalidCredentials
@@ -123,28 +130,35 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 	return &sess, nil
 }
 
-// StepUp reconfirma a senha do admin e eleva a sessão atual por uma janela
-// curta — pré-requisito pras rotas de escrita/exclusão do file manager do
-// host (ver internal/infra/host_files.go). Não existe token elevado
-// separado de propósito: mais simples, elevated_until vive na mesma sessão.
+// StepUp reconfirma a senha do usuário da sessão atual e eleva ela por uma
+// janela curta — pré-requisito pras rotas de escrita/exclusão do file
+// manager do host (ver internal/infra/host_files.go). Não existe token
+// elevado separado de propósito: mais simples, elevated_until vive na
+// mesma sessão.
 func (s *Service) StepUp(ctx context.Context, token, password string) (time.Time, error) {
+	th := hashToken(token)
+
 	var hash string
-	if err := s.pool.QueryRow(ctx, `SELECT password_hash FROM admin_user WHERE id = 1`).Scan(&hash); err != nil {
-		return time.Time{}, fmt.Errorf("lendo admin: %w", err)
+	err := s.pool.QueryRow(ctx, `
+		SELECT u.password_hash
+		FROM admin_sessions s JOIN users u ON u.id = s.user_id
+		WHERE s.token_hash = $1 AND s.expires_at > now()
+	`, th).Scan(&hash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, ErrInvalidCredentials
+		}
+		return time.Time{}, fmt.Errorf("lendo sessão: %w", err)
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		return time.Time{}, ErrInvalidCredentials
 	}
 
 	elevatedUntil := time.Now().Add(stepUpTTL)
-	tag, err := s.pool.Exec(ctx, `
+	if _, err := s.pool.Exec(ctx, `
 		UPDATE admin_sessions SET elevated_until = $2 WHERE token_hash = $1 AND expires_at > now()
-	`, hashToken(token), elevatedUntil)
-	if err != nil {
+	`, th, elevatedUntil); err != nil {
 		return time.Time{}, fmt.Errorf("elevando sessão: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return time.Time{}, ErrInvalidCredentials
 	}
 	return elevatedUntil, nil
 }

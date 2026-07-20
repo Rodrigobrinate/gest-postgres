@@ -25,10 +25,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { GitCredentialsManager } from "@/components/infra/git-credentials-manager";
 import { Plus, Trash2 } from "lucide-react";
 
-type EnvRow = { key: string; value: string };
-type PortRow = { containerPort: string; protocol: "tcp" | "udp"; hostPort: string };
+export type EnvRow = { key: string; value: string };
+export type PortRow = { containerPort: string; protocol: "tcp" | "udp"; hostPort: string };
 
-function envRowsToRecord(rows: EnvRow[]): Record<string, string> {
+export function envRowsToRecord(rows: EnvRow[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const r of rows) {
     if (r.key.trim()) out[r.key.trim()] = r.value;
@@ -36,7 +36,7 @@ function envRowsToRecord(rows: EnvRow[]): Record<string, string> {
   return out;
 }
 
-function portRowsToRecord(rows: PortRow[]): Record<string, number> {
+export function portRowsToRecord(rows: PortRow[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) {
     if (!r.containerPort.trim()) continue;
@@ -45,7 +45,7 @@ function portRowsToRecord(rows: PortRow[]): Record<string, number> {
   return out;
 }
 
-function EnvVarsEditor({ rows, setRows }: { rows: EnvRow[]; setRows: (r: EnvRow[]) => void }) {
+export function EnvVarsEditor({ rows, setRows }: { rows: EnvRow[]; setRows: (r: EnvRow[]) => void }) {
   return (
     <div className="grid gap-1.5">
       <Label>Variáveis de ambiente</Label>
@@ -90,7 +90,32 @@ function EnvVarsEditor({ rows, setRows }: { rows: EnvRow[]; setRows: (r: EnvRow[
   );
 }
 
-function PortMappingsEditor({ rows, setRows }: { rows: PortRow[]; setRows: (r: PortRow[]) => void }) {
+export function ResourceLimitsEditor({
+  cpu,
+  setCpu,
+  memory,
+  setMemory,
+}: {
+  cpu: string;
+  setCpu: (v: string) => void;
+  memory: string;
+  setMemory: (v: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-1.5">
+        <Label>Limite de CPU (cores, opcional)</Label>
+        <Input type="number" step="0.1" min="0" value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="sem limite" />
+      </div>
+      <div className="grid gap-1.5">
+        <Label>Limite de memória (MB, opcional)</Label>
+        <Input type="number" step="1" min="0" value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="sem limite" />
+      </div>
+    </div>
+  );
+}
+
+export function PortMappingsEditor({ rows, setRows }: { rows: PortRow[]; setRows: (r: PortRow[]) => void }) {
   return (
     <div className="grid gap-1.5">
       <Label>Portas</Label>
@@ -170,6 +195,8 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
   const [image, setImage] = useState("");
   const [imgEnv, setImgEnv] = useState<EnvRow[]>([]);
   const [imgPorts, setImgPorts] = useState<PortRow[]>([]);
+  const [imgCpu, setImgCpu] = useState("");
+  const [imgMemory, setImgMemory] = useState("");
 
   const createImage = useMutation({
     mutationFn: () =>
@@ -178,6 +205,8 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
         image,
         env: envRowsToRecord(imgEnv),
         ports: portRowsToRecord(imgPorts),
+        cpu_cores: imgCpu ? Number(imgCpu) : undefined,
+        memory_mb: imgMemory ? Number(imgMemory) : undefined,
       }),
     onSuccess: () => {
       toast.success("Container criado");
@@ -195,6 +224,8 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
   const [dfContextMode, setDfContextMode] = useState<"dockerfile" | "context">("dockerfile");
   const [dfEnv, setDfEnv] = useState<EnvRow[]>([]);
   const [dfPorts, setDfPorts] = useState<PortRow[]>([]);
+  const [dfCpu, setDfCpu] = useState("");
+  const [dfMemory, setDfMemory] = useState("");
   const [dfLog, setDfLog] = useState<string | null>(null);
 
   const createFromDockerfile = useMutation({
@@ -212,6 +243,8 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
         image: dfTag,
         env: envRowsToRecord(dfEnv),
         ports: portRowsToRecord(dfPorts),
+        cpu_cores: dfCpu ? Number(dfCpu) : undefined,
+        memory_mb: dfMemory ? Number(dfMemory) : undefined,
       });
     },
     onSuccess: () => {
@@ -249,6 +282,8 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
   const [credentialId, setCredentialId] = useState<string>("");
   const [gitEnv, setGitEnv] = useState<EnvRow[]>([]);
   const [gitPorts, setGitPorts] = useState<PortRow[]>([]);
+  const [gitCpu, setGitCpu] = useState("");
+  const [gitMemory, setGitMemory] = useState("");
   const [gitLog, setGitLog] = useState<string | null>(null);
 
   const { data: credentials } = useQuery({
@@ -267,6 +302,8 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
         credential_id: credentialId || undefined,
         env: envRowsToRecord(gitEnv),
         ports: portRowsToRecord(gitPorts),
+        cpu_cores: gitCpu ? Number(gitCpu) : undefined,
+        memory_mb: gitMemory ? Number(gitMemory) : undefined,
       }),
     onSuccess: (result) => {
       if (result.id) {
@@ -316,6 +353,7 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
             </div>
             <EnvVarsEditor rows={imgEnv} setRows={setImgEnv} />
             <PortMappingsEditor rows={imgPorts} setRows={setImgPorts} />
+            <ResourceLimitsEditor cpu={imgCpu} setCpu={setImgCpu} memory={imgMemory} setMemory={setImgMemory} />
             <DialogFooter>
               <Button
                 disabled={createImage.isPending || !imgName.trim() || !image.trim()}
@@ -381,6 +419,7 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
 
             <EnvVarsEditor rows={dfEnv} setRows={setDfEnv} />
             <PortMappingsEditor rows={dfPorts} setRows={setDfPorts} />
+            <ResourceLimitsEditor cpu={dfCpu} setCpu={setDfCpu} memory={dfMemory} setMemory={setDfMemory} />
 
             {dfLog && (
               <pre className="bg-red-50 text-red-800 max-h-40 overflow-auto rounded-md p-2 text-xs">{dfLog}</pre>
@@ -479,6 +518,7 @@ export function CreateContainerDialog({ onCreated }: { onCreated: () => void }) 
             </div>
             <EnvVarsEditor rows={gitEnv} setRows={setGitEnv} />
             <PortMappingsEditor rows={gitPorts} setRows={setGitPorts} />
+            <ResourceLimitsEditor cpu={gitCpu} setCpu={setGitCpu} memory={gitMemory} setMemory={setGitMemory} />
             {gitLog && (
               <pre className="bg-red-50 text-red-800 max-h-40 overflow-auto rounded-md p-2 text-xs">{gitLog}</pre>
             )}

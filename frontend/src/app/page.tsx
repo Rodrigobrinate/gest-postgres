@@ -6,6 +6,7 @@ import { DiscoverServersDialog } from "@/components/servers/discover-servers-dia
 import { PlatformStatsCards } from "@/components/servers/platform-stats-cards";
 import { ServerTable } from "@/components/servers/server-table";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { UsersManager } from "@/components/auth/users-manager";
 import { Boxes, Database } from "lucide-react";
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
           </Button>
           <DiscoverServersDialog />
           <CreateServerDialog />
+          <UsersManager />
           <LogoutButton />
         </div>
       </header>

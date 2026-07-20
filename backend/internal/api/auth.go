@@ -61,11 +61,16 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	if _, ok := auth.SessionFromContext(r.Context()); !ok {
+	sess, ok := auth.SessionFromContext(r.Context())
+	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "não autenticado")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"authenticated": true,
+		"username":      sess.Username,
+		"role":          sess.Role,
+	})
 }
 
 type stepUpRequest struct {

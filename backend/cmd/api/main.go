@@ -80,6 +80,7 @@ func run() error {
 	go serverService.RunBackupSweep(ctx, 1*time.Minute)
 
 	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
+	go infraService.RunCronSweep(ctx, 1*time.Minute)
 
 	router := api.NewRouter(serverService, infraService, authService)
 

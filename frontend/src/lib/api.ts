@@ -444,6 +444,8 @@ export interface CreateContainerFromImageInput {
   env: Record<string, string>;
   ports: Record<string, number>;
   network?: string;
+  cpu_cores?: number;
+  memory_mb?: number;
 }
 
 export interface MountInfo {
@@ -476,6 +478,8 @@ export interface ContainerDetail {
   command: string[];
   mounts: MountInfo[];
   networks: Record<string, NetworkEndpoint>;
+  cpu_cores: number;
+  memory_mb: number;
 }
 
 export interface ContainerStatsSnapshot {
@@ -510,11 +514,61 @@ export interface FileEntry {
 
 export type HostFileEntry = FileEntry;
 
+export type UserRole = "admin" | "viewer";
+
+export interface User {
+  id: string;
+  username: string;
+  role: UserRole;
+  created_at: string;
+}
+
+export type CronFrequency = "interval" | "daily" | "weekly";
+
+export interface CronJob {
+  id: string;
+  container_id: string;
+  container_name: string;
+  name: string;
+  command: string;
+  frequency: CronFrequency;
+  interval_minutes?: number;
+  weekday?: number;
+  time_of_day: string;
+  enabled: boolean;
+  last_run_at?: string;
+  last_exit_code?: number;
+  last_output?: string;
+  created_at: string;
+}
+
+export interface CreateCronJobInput {
+  container_id: string;
+  container_name: string;
+  name: string;
+  command: string;
+  frequency: CronFrequency;
+  interval_minutes?: number;
+  weekday?: number;
+  time_of_day?: string;
+}
+
 export interface InfraNetwork {
   id: string;
   name: string;
   driver: string;
   scope: string;
+}
+
+export interface VolumeBackup {
+  id: string;
+  volume_name: string;
+  filename: string;
+  size_bytes?: number;
+  status: "running" | "completed" | "failed";
+  error?: string;
+  started_at: string;
+  completed_at?: string;
 }
 
 export interface InfraVolume {
@@ -603,11 +657,46 @@ export interface CreateContainerFromGitInput {
   credential_id?: string;
   env: Record<string, string>;
   ports: Record<string, number>;
+  cpu_cores?: number;
+  memory_mb?: number;
 }
 
 export interface CreateFromGitResult {
   id: string;
   build?: BuildResult;
+}
+
+export interface GitDeployment {
+  id: string;
+  container_name: string;
+  image_tag: string;
+  repo_url: string;
+  branch: string;
+  credential_id?: string;
+  env: Record<string, string>;
+  ports: Record<string, number>;
+  network?: string;
+  last_deployed_at?: string;
+  last_status?: "success" | "failed" | "";
+  last_error?: string;
+  last_build_log?: string;
+  created_at: string;
+}
+
+export interface CreateGitDeploymentInput {
+  container_name: string;
+  image_tag: string;
+  repo_url: string;
+  branch: string;
+  credential_id?: string;
+  env: Record<string, string>;
+  ports: Record<string, number>;
+}
+
+export interface CreateGitDeploymentResult {
+  deployment: GitDeployment;
+  webhook_url_path: string;
+  webhook_secret: string;
 }
 
 export type BackupStorageKind = "local" | "gdrive";
@@ -1307,6 +1396,31 @@ export const api = {
   disconnectContainerNetwork: (id: string, networkName: string) =>
     request<void>(`/api/v1/infra/containers/${id}/networks/${networkName}`, { method: "DELETE" }),
 
+  listCronJobs: (containerId: string) =>
+    request<CronJob[]>(`/api/v1/infra/cron-jobs?container_id=${encodeURIComponent(containerId)}`),
+
+  createCronJob: (input: CreateCronJobInput) =>
+    request<CronJob>(`/api/v1/infra/cron-jobs`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteCronJob: (id: string) => request<void>(`/api/v1/infra/cron-jobs/${id}`, { method: "DELETE" }),
+
+  setCronJobEnabled: (id: string, enabled: boolean) =>
+    request<{ status: string }>(`/api/v1/infra/cron-jobs/${id}/enabled`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
+  runCronJobNow: (id: string) => request<CronJob>(`/api/v1/infra/cron-jobs/${id}/run`, { method: "POST" }),
+
+  updateContainerResources: (id: string, cpuCores: number, memoryMb: number) =>
+    request<{ status: string }>(`/api/v1/infra/containers/${id}/resources`, {
+      method: "POST",
+      body: JSON.stringify({ cpu_cores: cpuCores, memory_mb: memoryMb }),
+    }),
+
   attachContainerVolume: (
     id: string,
     input: { volume_name: string; mount_path: string; read_only: boolean }
@@ -1462,6 +1576,17 @@ export const api = {
   removeInfraVolume: (name: string) =>
     request<void>(`/api/v1/infra/volumes/${name}`, { method: "DELETE" }),
 
+  listVolumeBackups: (name: string) => request<VolumeBackup[]>(`/api/v1/infra/volumes/${name}/backups`),
+
+  createVolumeBackup: (name: string) =>
+    request<VolumeBackup>(`/api/v1/infra/volumes/${name}/backups`, { method: "POST" }),
+
+  deleteVolumeBackup: (name: string, backupId: string) =>
+    request<void>(`/api/v1/infra/volumes/${name}/backups/${backupId}`, { method: "DELETE" }),
+
+  volumeBackupDownloadUrl: (name: string, backupId: string) =>
+    `${API_URL}/api/v1/infra/volumes/${name}/backups/${backupId}/download`,
+
   listComposeProjects: () => request<ComposeProject[]>(`/api/v1/infra/compose`),
 
   deployCompose: (name: string, compose: string) =>
@@ -1534,6 +1659,19 @@ export const api = {
   removeFirewallRule: (port: number, proto: "tcp" | "udp") =>
     request<void>(`/api/v1/infra/firewall-rules/${port}/${proto}`, { method: "DELETE" }),
 
+  listGitDeployments: () => request<GitDeployment[]>(`/api/v1/infra/git-deployments`),
+
+  createGitDeployment: (input: CreateGitDeploymentInput) =>
+    requestAllowDomainFailure<CreateGitDeploymentResult>(`/api/v1/infra/git-deployments`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteGitDeployment: (id: string) => request<void>(`/api/v1/infra/git-deployments/${id}`, { method: "DELETE" }),
+
+  redeployGitDeploymentNow: (id: string) =>
+    request<{ status: string }>(`/api/v1/infra/git-deployments/${id}/redeploy`, { method: "POST" }),
+
   listGitCredentials: () => request<GitCredential[]>(`/api/v1/infra/git-credentials`),
 
   createGitCredential: (input: CreateGitCredentialInput) =>
@@ -1553,10 +1691,26 @@ export const api = {
 
   logout: () => request<{ ok: boolean }>(`/api/v1/auth/logout`, { method: "POST" }),
 
-  me: () => request<{ authenticated: boolean }>(`/api/v1/auth/me`),
+  me: () => request<{ authenticated: boolean; username: string; role: UserRole }>(`/api/v1/auth/me`),
 
   stepUp: (password: string) =>
     request<{ elevated_until: string }>(`/api/v1/auth/step-up`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+
+  listUsers: () => request<User[]>(`/api/v1/users`),
+
+  createUser: (username: string, password: string, role: UserRole) =>
+    request<User>(`/api/v1/users`, {
+      method: "POST",
+      body: JSON.stringify({ username, password, role }),
+    }),
+
+  deleteUser: (id: string) => request<void>(`/api/v1/users/${id}`, { method: "DELETE" }),
+
+  resetUserPassword: (id: string, password: string) =>
+    request<{ status: string }>(`/api/v1/users/${id}/reset-password`, {
       method: "POST",
       body: JSON.stringify({ password }),
     }),

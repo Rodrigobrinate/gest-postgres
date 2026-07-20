@@ -136,6 +136,24 @@ func (h *InfraHandler) DisconnectContainerNetwork(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type updateResourcesInput struct {
+	CPUCores float64 `json:"cpu_cores"`
+	MemoryMB int     `json:"memory_mb"`
+}
+
+func (h *InfraHandler) UpdateContainerResources(w http.ResponseWriter, r *http.Request) {
+	var in updateResourcesInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.UpdateContainerResources(r.Context(), r.PathValue("containerId"), in.CPUCores, in.MemoryMB); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *InfraHandler) AttachContainerVolume(w http.ResponseWriter, r *http.Request) {
 	var in infra.AttachVolumeInput
 	if err := httpx.DecodeJSON(r, &in); err != nil {

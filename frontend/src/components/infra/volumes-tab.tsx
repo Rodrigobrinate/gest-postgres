@@ -16,7 +16,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { FileBrowser, type FileBrowserAdapter } from "@/components/infra/file-browser";
-import { FolderOpen, HardDrive, Plus, Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Archive, Download, FolderOpen, HardDrive, Plus, Trash2 } from "lucide-react";
 
 function formatBytes(bytes?: number) {
   if (!bytes) return "—";
@@ -58,6 +59,7 @@ export function VolumesTab() {
   });
 
   const [browsing, setBrowsing] = useState<string | null>(null);
+  const [backingUp, setBackingUp] = useState<string | null>(null);
 
   return (
     <Card>
@@ -99,6 +101,9 @@ export function VolumesTab() {
                   <Button size="icon" variant="ghost" title="Arquivos" onClick={() => setBrowsing(v.name)}>
                     <FolderOpen className="size-3.5" />
                   </Button>
+                  <Button size="icon" variant="ghost" title="Backup" onClick={() => setBackingUp(v.name)}>
+                    <Archive className="size-3.5" />
+                  </Button>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -125,7 +130,106 @@ export function VolumesTab() {
           </DialogContent>
         </Dialog>
       )}
+
+      {backingUp && (
+        <Dialog open onOpenChange={(v) => !v && setBackingUp(null)}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="font-mono text-sm">Backups — {backingUp}</DialogTitle>
+            </DialogHeader>
+            <VolumeBackups volumeName={backingUp} />
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
+  );
+}
+
+function VolumeBackups({ volumeName }: { volumeName: string }) {
+  const { data: backups, isLoading } = useQuery({
+    queryKey: ["volume-backups", volumeName],
+    queryFn: () => api.listVolumeBackups(volumeName),
+    refetchInterval: 5_000,
+  });
+
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["volume-backups", volumeName] });
+
+  const create = useMutation({
+    mutationFn: () => api.createVolumeBackup(volumeName),
+    onSuccess: () => {
+      toast.success("Backup criado");
+      invalidate();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar backup"),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteVolumeBackup(volumeName, id),
+    onSuccess: () => {
+      toast.success("Backup removido");
+      invalidate();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao remover backup"),
+  });
+
+  return (
+    <div className="grid gap-3">
+      <Button size="sm" className="justify-self-start" disabled={create.isPending} onClick={() => create.mutate()}>
+        <Archive className="size-4" />
+        {create.isPending ? "Gerando snapshot..." : "Backup agora"}
+      </Button>
+
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Carregando...</p>
+      ) : !backups || backups.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Nenhum backup ainda.</p>
+      ) : (
+        <ul className="divide-y rounded-md border">
+          {backups.map((b) => (
+            <li key={b.id} className="flex items-center justify-between px-3 py-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs">{b.filename}</span>
+                <Badge
+                  className={
+                    b.status === "completed"
+                      ? "bg-emerald-600 text-white"
+                      : b.status === "failed"
+                        ? "bg-red-600 text-white"
+                        : undefined
+                  }
+                  variant={b.status === "running" ? "secondary" : undefined}
+                >
+                  {b.status}
+                </Badge>
+                <span className="text-muted-foreground text-xs">{formatBytes(b.size_bytes)}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {b.status === "completed" && (
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    title="Baixar"
+                    render={<a href={api.volumeBackupDownloadUrl(volumeName, b.id)} />}
+                  >
+                    <Download className="size-3.5" />
+                  </Button>
+                )}
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  className="text-red-600"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(b.id)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

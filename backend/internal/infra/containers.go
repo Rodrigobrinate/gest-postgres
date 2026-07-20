@@ -90,6 +90,9 @@ type CreateContainerFromImageInput struct {
 	Env         map[string]string `json:"env"`
 	Ports       map[string]int    `json:"ports"` // "containerPort/tcp" -> hostPort (0 = não publica)
 	NetworkName string            `json:"network"`
+	// CPUCores/MemoryMB: 0 = sem limite.
+	CPUCores float64 `json:"cpu_cores,omitempty"`
+	MemoryMB int     `json:"memory_mb,omitempty"`
 }
 
 // CreateContainerFromImage é o "criar container" simples da tela de Docker —
@@ -135,5 +138,7 @@ func (s *Service) CreateContainerFromImage(ctx context.Context, in CreateContain
 		Labels:               map[string]string{"gestpg.infra_created": "true"},
 		NetworkName:          networkName,
 		RestartUnlessStopped: true,
+		CPUCores:             in.CPUCores,
+		MemoryMB:             in.MemoryMB,
 	})
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gest-postgres/backend/internal/auth"
@@ -53,16 +54,41 @@ var publicPaths = map[string]bool{
 	"/api/v1/healthz":    true,
 }
 
+// publicPathSuffixes é pra rota pública com segmento dinâmico no meio (o
+// webhook de auto-deploy do Git, /infra/git-deployments/{id}/webhook — quem
+// autentica ali é a assinatura HMAC do provedor, não sessão de usuário, ver
+// internal/api/git_deployments.go).
+var publicPathSuffixes = []string{"/webhook"}
+
+func isPublicPath(path string) bool {
+	if publicPaths[path] {
+		return true
+	}
+	for _, suffix := range publicPathSuffixes {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// selfServicePaths são POST/DELETE que qualquer sessão autenticada pode
+// chamar mesmo sendo viewer (não é "escrita de dado da plataforma", é ação
+// sobre a própria sessão).
+var selfServicePaths = map[string]bool{
+	"/api/v1/auth/logout": true,
+}
+
 // withAuth exige uma sessão válida (cookie httpOnly) pra qualquer rota fora
-// da allowlist. Antes dessa mudança a API inteira respondia sem
-// autenticação nenhuma — ver CLAUDE.md, item MVP "Login/senha" que estava
-// pendente. Precisa ficar por DENTRO de withCORS na cadeia (withCORS chama
-// next só depois de tratar OPTIONS) senão todo preflight do browser toma 401
-// antes de chegar aqui.
+// da allowlist, e aplica a regra de papel: viewer só pode método de leitura
+// (GET/HEAD) — qualquer escrita (POST/PUT/PATCH/DELETE) exige admin. Isso
+// cobre a API inteira sem precisar marcar rota por rota (são ~150+), com
+// UMA exceção: terminal (WebSocket, tecnicamente um GET) dá controle total
+// do container, então é sempre admin-only mesmo sendo GET.
 func withAuth(authService *auth.Service) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if publicPaths[r.URL.Path] {
+			if isPublicPath(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -76,6 +102,16 @@ func withAuth(authService *auth.Service) func(http.Handler) http.Handler {
 				httpx.WriteError(w, http.StatusUnauthorized, "sessão inválida ou expirada")
 				return
 			}
+
+			if !sess.IsAdmin() && !selfServicePaths[r.URL.Path] {
+				isWrite := r.Method != http.MethodGet && r.Method != http.MethodHead
+				isTerminal := strings.HasSuffix(r.URL.Path, "/exec")
+				if isWrite || isTerminal {
+					httpx.WriteError(w, http.StatusForbidden, "essa ação exige papel admin")
+					return
+				}
+			}
+
 			next.ServeHTTP(w, r.WithContext(auth.WithSession(r.Context(), sess)))
 		})
 	}
@@ -90,6 +126,20 @@ func requireElevated(next http.HandlerFunc) http.HandlerFunc {
 		sess, ok := auth.SessionFromContext(r.Context())
 		if !ok || !sess.Elevated() {
 			httpx.WriteError(w, http.StatusForbidden, "confirme a senha de novo pra continuar (zona de risco)")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+}
+
+// requireAdmin é redundante com a regra de escrita do withAuth pra
+// POST/DELETE, mas cobre também o GET de listar usuário — um viewer não
+// precisa enxergar o roster de contas da plataforma.
+func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sess, ok := auth.SessionFromContext(r.Context())
+		if !ok || !sess.IsAdmin() {
+			httpx.WriteError(w, http.StatusForbidden, "essa ação exige papel admin")
 			return
 		}
 		next.ServeHTTP(w, r)
