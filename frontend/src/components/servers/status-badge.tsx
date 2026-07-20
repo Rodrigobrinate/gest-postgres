@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import type { ServerStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
 const STATUS_LABEL: Record<ServerStatus, string> = {
   creating: "Criando",
@@ -22,7 +23,8 @@ const STATUS_CLASS: Record<ServerStatus, string> = {
 
 export function StatusBadge({ status }: { status: ServerStatus }) {
   return (
-    <Badge variant="outline" className={cn("font-medium", STATUS_CLASS[status])}>
+    <Badge variant="outline" className={cn("font-medium gap-1", STATUS_CLASS[status])}>
+      {status === "creating" && <Loader2 className="size-3 animate-spin" />}
       {STATUS_LABEL[status] ?? status}
     </Badge>
   );

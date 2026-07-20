@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -84,7 +85,6 @@ func (s *Service) ContainerStatsHistory(ctx context.Context, containerID string)
 func (s *Service) collectContainerHistory(containerID string, h *containerHistory) {
 	ticker := time.NewTicker(containerHistoryInterval)
 	defer ticker.Stop()
-	ctx := context.Background()
 
 	for range ticker.C {
 		if h.idleFor() > containerHistoryIdleTTL {
@@ -93,8 +93,15 @@ func (s *Service) collectContainerHistory(containerID string, h *containerHistor
 			s.containerHistories.mu.Unlock()
 			return
 		}
+		// Timeout por tick — sem isso, uma chamada de stats que trava (proxy
+		// lento, container num estado estranho) empaca esse goroutine pra
+		// sempre, sem erro nenhum: nunca mais nenhum ponto entra no
+		// histórico, silenciosamente, porque o loop nunca volta pro ticker.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		snap, err := s.docker.ContainerStats(ctx, containerID)
+		cancel()
 		if err != nil {
+			slog.Error("falha coletando stats de container pro histórico", "error", err, "container_id", containerID)
 			continue
 		}
 		h.append(ContainerMetricPoint{
