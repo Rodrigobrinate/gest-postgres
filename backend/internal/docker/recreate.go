@@ -80,3 +80,25 @@ func (c *Client) RecreateContainerWithEnv(ctx context.Context, containerID strin
 		cfg.Env = env
 	})
 }
+
+// RecreateContainerWithLabels troca os labels — mesma limitação de sempre
+// (label também é fixado na criação). Sempre remove primeiro qualquer label
+// cuja chave comece com removeLabelPrefix (evita acumular labels de uma rota
+// de proxy antiga ao trocar de domínio) e só depois aplica addLabels; chamar
+// com addLabels vazio/nil e o mesmo prefixo remove a rota (usado por
+// DeleteProxyRoute no modo "via labels").
+func (c *Client) RecreateContainerWithLabels(ctx context.Context, containerID string, addLabels map[string]string, removeLabelPrefix string) (string, error) {
+	return c.recreateContainer(ctx, containerID, func(cfg *container.Config, _ *container.HostConfig) {
+		newLabels := map[string]string{}
+		for k, v := range cfg.Labels {
+			if removeLabelPrefix != "" && strings.HasPrefix(k, removeLabelPrefix) {
+				continue
+			}
+			newLabels[k] = v
+		}
+		for k, v := range addLabels {
+			newLabels[k] = v
+		}
+		cfg.Labels = newLabels
+	})
+}

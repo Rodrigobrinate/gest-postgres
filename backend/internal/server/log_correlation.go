@@ -2,16 +2,25 @@ package server
 
 import (
 	"context"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
 
 type LogLine struct {
-	Timestamp       time.Time `json:"timestamp"`
-	Text            string    `json:"text"`
-	CPUPercent      *float64  `json:"cpu_percent"`
-	ConnectionCount *int      `json:"connection_count"`
+	Timestamp time.Time `json:"timestamp"`
+	// Level: LOG/ERROR/WARNING/FATAL/PANIC/NOTICE/INFO/DEBUG1-5 — extraído
+	// do texto (não do log_line_prefix, que é editável e não tem posição
+	// fixa). Vazio quando a linha não bate com nenhum nível reconhecido.
+	Level string `json:"level"`
+	Text  string `json:"text"`
+	// Details são as linhas de continuação do MESMO evento (DETAIL/HINT/
+	// STATEMENT/CONTEXT/QUERY do Postgres, ou spillover de texto multi-linha
+	// sem nível próprio) — é o que a UI mostra só quando a linha é expandida.
+	Details         []string `json:"details,omitempty"`
+	CPUPercent      *float64 `json:"cpu_percent"`
+	ConnectionCount *int     `json:"connection_count"`
 }
 
 // LogsTimeline busca logs com timestamp real do Docker (independe do
@@ -45,9 +54,35 @@ func (s *Service) LogsTimeline(ctx context.Context, id string, tailLines int) ([
 	return lines, nil
 }
 
+// logLevelRegex acha o nível em qualquer posição da linha (não só no
+// início) porque log_line_prefix é configurável pelo usuário (86 params
+// geridos incluem esse) — procurar o token fixo ("LOG:", "ERROR:" etc.) é
+// mais robusto que assumir uma posição.
+var logLevelRegex = regexp.MustCompile(`\b(LOG|ERROR|WARNING|FATAL|PANIC|NOTICE|INFO|DEBUG[1-5]?|DETAIL|HINT|STATEMENT|CONTEXT|QUERY):\s`)
+
+// primaryLevels são os que abrem uma linha NOVA na tabela; os demais
+// (DETAIL/HINT/STATEMENT/CONTEXT/QUERY) são sempre continuação do evento
+// anterior no Postgres — nunca aparecem sozinhos.
+var primaryLevels = map[string]bool{
+	"LOG": true, "ERROR": true, "WARNING": true, "FATAL": true, "PANIC": true,
+	"NOTICE": true, "INFO": true,
+	"DEBUG": true, "DEBUG1": true, "DEBUG2": true, "DEBUG3": true, "DEBUG4": true, "DEBUG5": true,
+}
+
+func detectLogLevel(text string) string {
+	m := logLevelRegex.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
 // parseLogLines espera o formato que o Docker usa quando Timestamps:true —
 // "2026-07-17T23:14:20.123456789Z resto da linha". Linha sem timestamp
 // parseável (não deveria acontecer, mas defensivo) entra com zero value.
+// Linhas que não abrem um nível novo (DETAIL/HINT/STATEMENT/CONTEXT/QUERY do
+// Postgres, ou puro spillover multi-linha sem nível nenhum) são anexadas
+// como detalhe da última linha primária, nunca viram linha própria.
 func parseLogLines(raw string) []LogLine {
 	rawLines := strings.Split(raw, "\n")
 	out := make([]LogLine, 0, len(rawLines))
@@ -55,17 +90,22 @@ func parseLogLines(raw string) []LogLine {
 		if l == "" {
 			continue
 		}
-		sp := strings.IndexByte(l, ' ')
-		if sp < 0 {
-			out = append(out, LogLine{Text: l})
+		var ts time.Time
+		text := l
+		if sp := strings.IndexByte(l, ' '); sp >= 0 {
+			if parsed, err := time.Parse(time.RFC3339Nano, l[:sp]); err == nil {
+				ts = parsed
+				text = l[sp+1:]
+			}
+		}
+
+		level := detectLogLevel(text)
+		if len(out) > 0 && !primaryLevels[level] {
+			last := &out[len(out)-1]
+			last.Details = append(last.Details, text)
 			continue
 		}
-		ts, err := time.Parse(time.RFC3339Nano, l[:sp])
-		if err != nil {
-			out = append(out, LogLine{Text: l})
-			continue
-		}
-		out = append(out, LogLine{Timestamp: ts, Text: l[sp+1:]})
+		out = append(out, LogLine{Timestamp: ts, Level: level, Text: text})
 	}
 	return out
 }

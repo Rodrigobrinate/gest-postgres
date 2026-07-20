@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,12 @@ type TraefikStatus struct {
 	Enabled   bool   `json:"enabled"`
 	Running   bool   `json:"running"`
 	AcmeEmail string `json:"acme_email,omitempty"`
+	// ExternalDetected: já existe um Traefik no host que essa plataforma não
+	// criou (ex: o do EasyPanel) — quando true, a UI deve orientar pro modo
+	// de rota "via labels" (H mais abaixo) em vez de "Habilitar Traefik", pra
+	// nunca subir um segundo Traefik brigando pelas portas 80/443.
+	ExternalDetected      bool   `json:"external_detected"`
+	ExternalContainerName string `json:"external_container_name,omitempty"`
 }
 
 func (s *Service) TraefikStatus(ctx context.Context) (*TraefikStatus, error) {
@@ -34,6 +41,10 @@ func (s *Service) TraefikStatus(ctx context.Context) (*TraefikStatus, error) {
 		if info, err := s.docker.InspectContainer(ctx, containerID); err == nil {
 			status.Running = info.Running
 		}
+	}
+	if name, _, found, err := s.docker.DetectExternalTraefik(ctx); err == nil && found {
+		status.ExternalDetected = true
+		status.ExternalContainerName = name
 	}
 	return status, nil
 }
@@ -137,14 +148,23 @@ type ProxyRoute struct {
 	// TargetURL é o modo "apontar pra fora" (IP/host externo, qualquer
 	// serviço que não seja um container gerenciado por essa rede Docker) —
 	// mutuamente exclusivo com TargetContainer/TargetPort e RedirectTarget.
-	TargetURL         string    `json:"target_url,omitempty"`
-	TLS               bool      `json:"tls"`
-	PathPrefix        string    `json:"path_prefix"`
-	StripPrefix       bool      `json:"strip_prefix"`
-	RedirectTarget    string    `json:"redirect_target,omitempty"`
-	RedirectPermanent bool      `json:"redirect_permanent"`
-	HTTPSRedirect     bool      `json:"https_redirect"`
-	CreatedAt         time.Time `json:"created_at"`
+	TargetURL         string `json:"target_url,omitempty"`
+	TLS               bool   `json:"tls"`
+	PathPrefix        string `json:"path_prefix"`
+	StripPrefix       bool   `json:"strip_prefix"`
+	RedirectTarget    string `json:"redirect_target,omitempty"`
+	RedirectPermanent bool   `json:"redirect_permanent"`
+	HTTPSRedirect     bool   `json:"https_redirect"`
+	// ViaLabels: rota aplicada como label Docker no container ALVO (recriado
+	// pra isso) em vez de arquivo no file provider do gestpg-traefik — modo
+	// usado quando existe um Traefik externo (EasyPanel etc) que a
+	// plataforma nunca deve recriar/tocar. CertResolver é o nome do resolver
+	// ACME já configurado NAQUELE Traefik externo (a plataforma não tem como
+	// descobrir isso sozinha); vazio = sem TLS gerenciado por label, o
+	// certificado fica por conta do que já existir no Traefik externo.
+	ViaLabels    bool      `json:"via_labels"`
+	CertResolver string    `json:"cert_resolver,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 func (r ProxyRoute) isRedirect() bool { return r.RedirectTarget != "" }
@@ -176,6 +196,12 @@ type CreateProxyRouteInput struct {
 	// deixar a porta 80 sem router nenhum pra esse domínio (comportamento
 	// de hoje sem essa opção: TLS=true deixa http:// 404ando).
 	HTTPSRedirect bool `json:"https_redirect,omitempty"`
+	// ViaLabels: usa o modo de rota por label Docker em vez do file
+	// provider do gestpg-traefik — só vale pro modo proxy-pra-container
+	// (nunca redirect nem destino externo), pensado pra rotear através de
+	// um Traefik externo já existente no host sem nunca recriá-lo.
+	ViaLabels    bool   `json:"via_labels,omitempty"`
+	CertResolver string `json:"cert_resolver,omitempty"`
 }
 
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$`)
@@ -184,7 +210,8 @@ var containerNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, domain, target_container, target_port, target_url, tls,
-		       path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect, created_at
+		       path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect,
+		       via_labels, cert_resolver, created_at
 		FROM proxy_routes ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -196,7 +223,8 @@ func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 		var r ProxyRoute
 		if err := rows.Scan(
 			&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TargetURL, &r.TLS,
-			&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect, &r.CreatedAt,
+			&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect,
+			&r.ViaLabels, &r.CertResolver, &r.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("lendo rota: %w", err)
 		}
@@ -230,6 +258,9 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 	if isRedirect && isExternal {
 		return nil, fmt.Errorf("uma rota é proxy, redirect ou destino externo — nunca mais de um ao mesmo tempo")
 	}
+	if in.ViaLabels && (isRedirect || isExternal) {
+		return nil, fmt.Errorf("rota via labels só funciona apontando pra um container (proxy) — não redirect nem destino externo")
+	}
 
 	switch {
 	case isRedirect:
@@ -254,8 +285,13 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 		if in.TargetPort <= 0 || in.TargetPort > 65535 {
 			return nil, fmt.Errorf("porta inválida")
 		}
-		if err := s.docker.ConnectNetwork(ctx, s.networkName, in.TargetContainer); err != nil {
-			return nil, fmt.Errorf("conectando %q à rede gerenciada: %w", in.TargetContainer, err)
+		// Modo via labels não conecta na nossa rede gestpg-managed — quem
+		// precisa alcançar o alvo é o Traefik EXTERNO, não o gestpg-traefik;
+		// essa conexão acontece depois, em applyLabelRoute, nas redes dele.
+		if !in.ViaLabels {
+			if err := s.docker.ConnectNetwork(ctx, s.networkName, in.TargetContainer); err != nil {
+				return nil, fmt.Errorf("conectando %q à rede gerenciada: %w", in.TargetContainer, err)
+			}
 		}
 	}
 
@@ -263,31 +299,107 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO proxy_routes (
 			domain, target_container, target_port, target_url, tls,
-			path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect
+			path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect,
+			via_labels, cert_resolver
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, domain, target_container, target_port, target_url, tls,
-		          path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect, created_at
+		          path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect,
+		          via_labels, cert_resolver, created_at
 	`, in.Domain, in.TargetContainer, in.TargetPort, in.TargetURL, in.TLS,
 		pathPrefix, in.StripPrefix, in.RedirectTarget, in.RedirectPermanent, in.HTTPSRedirect,
+		in.ViaLabels, in.CertResolver,
 	).Scan(
 		&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TargetURL, &r.TLS,
-		&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect, &r.CreatedAt,
+		&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect,
+		&r.ViaLabels, &r.CertResolver, &r.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("salvando rota: %w", err)
 	}
 
-	if err := writeDynamicConfig(r); err != nil {
+	var applyErr error
+	if r.ViaLabels {
+		applyErr = s.applyLabelRoute(ctx, r)
+	} else {
+		applyErr = writeDynamicConfig(r)
+	}
+	if applyErr != nil {
 		_, _ = s.pool.Exec(ctx, `DELETE FROM proxy_routes WHERE id = $1`, r.ID)
-		return nil, err
+		return nil, applyErr
 	}
 	return &r, nil
 }
 
+// applyLabelRoute recria SÓ o container alvo com os labels do Traefik —
+// nunca toca no container do Traefik externo (EasyPanel etc). Best-effort:
+// conecta o alvo em toda rede que o Traefik externo detectado já está, pra
+// aumentar a chance dele alcançar o alvo mesmo sem saber a topologia de rede
+// de quem administra esse Traefik.
+func (s *Service) applyLabelRoute(ctx context.Context, r ProxyRoute) error {
+	containerID, err := s.docker.FindContainerIDByName(ctx, r.TargetContainer)
+	if err != nil {
+		return fmt.Errorf("procurando container %q: %w", r.TargetContainer, err)
+	}
+	if containerID == "" {
+		return fmt.Errorf("container %q não encontrado", r.TargetContainer)
+	}
+
+	if _, networks, found, err := s.docker.DetectExternalTraefik(ctx); err == nil && found {
+		for _, netName := range networks {
+			_ = s.docker.ConnectNetwork(ctx, netName, containerID)
+		}
+	}
+
+	if _, err := s.docker.RecreateContainerWithLabels(ctx, containerID, buildTraefikLabels(r), "traefik."); err != nil {
+		return fmt.Errorf("aplicando labels do traefik no container %q: %w", r.TargetContainer, err)
+	}
+	return nil
+}
+
+// buildTraefikLabels monta os labels no formato que o provider Docker do
+// Traefik espera — mesma regra de roteamento que writeDynamicConfig gera
+// pro file provider, só que como label em vez de YAML em disco.
+func buildTraefikLabels(r ProxyRoute) map[string]string {
+	name := routeSafeName(r.Domain)
+	pathPrefix := r.PathPrefix
+	if pathPrefix == "" {
+		pathPrefix = "/"
+	}
+	rule := fmt.Sprintf("Host(`%s`)", r.Domain)
+	if pathPrefix != "/" {
+		rule += fmt.Sprintf(" && PathPrefix(`%s`)", pathPrefix)
+	}
+
+	entrypoints := "web"
+	labels := map[string]string{
+		"traefik.enable": "true",
+		fmt.Sprintf("traefik.http.routers.%s.rule", name):                      rule,
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port", name): strconv.Itoa(r.TargetPort),
+	}
+	if r.TLS {
+		entrypoints = "web,websecure"
+		if r.CertResolver != "" {
+			labels[fmt.Sprintf("traefik.http.routers.%s.tls.certresolver", name)] = r.CertResolver
+		} else {
+			labels[fmt.Sprintf("traefik.http.routers.%s.tls", name)] = "true"
+		}
+	}
+	labels[fmt.Sprintf("traefik.http.routers.%s.entrypoints", name)] = entrypoints
+
+	if r.StripPrefix && pathPrefix != "/" {
+		mw := name + "-strip"
+		labels[fmt.Sprintf("traefik.http.middlewares.%s.stripprefix.prefixes", mw)] = pathPrefix
+		labels[fmt.Sprintf("traefik.http.routers.%s.middlewares", name)] = mw
+	}
+	return labels
+}
+
 func (s *Service) DeleteProxyRoute(ctx context.Context, id string) error {
-	var domain string
-	err := s.pool.QueryRow(ctx, `SELECT domain FROM proxy_routes WHERE id = $1`, id).Scan(&domain)
+	var domain, targetContainer string
+	var viaLabels bool
+	err := s.pool.QueryRow(ctx, `SELECT domain, target_container, via_labels FROM proxy_routes WHERE id = $1`, id).
+		Scan(&domain, &targetContainer, &viaLabels)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("rota não encontrada")
@@ -296,6 +408,20 @@ func (s *Service) DeleteProxyRoute(ctx context.Context, id string) error {
 	}
 	if _, err := s.pool.Exec(ctx, `DELETE FROM proxy_routes WHERE id = $1`, id); err != nil {
 		return fmt.Errorf("excluindo rota: %w", err)
+	}
+	if viaLabels {
+		if targetContainer == "" {
+			return nil
+		}
+		containerID, err := s.docker.FindContainerIDByName(ctx, targetContainer)
+		if err != nil || containerID == "" {
+			return nil
+		}
+		_, err = s.docker.RecreateContainerWithLabels(ctx, containerID, nil, "traefik.")
+		if err != nil {
+			return fmt.Errorf("removendo labels do traefik do container %q: %w", targetContainer, err)
+		}
+		return nil
 	}
 	return removeDynamicConfig(domain)
 }

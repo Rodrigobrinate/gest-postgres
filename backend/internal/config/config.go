@@ -7,7 +7,7 @@ import (
 )
 
 type Config struct {
-	// HTTPAddr é o endereço em que a API escuta, ex: ":8080".
+	// HTTPAddr é o endereço em que a API escuta, ex: ":28080".
 	HTTPAddr string
 
 	// MetadataDatabaseURL é a connection string do Postgres de metadados da plataforma
@@ -39,7 +39,7 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		HTTPAddr:                getEnv("HTTP_ADDR", ":8080"),
+		HTTPAddr:                getEnv("HTTP_ADDR", ":28080"),
 		MetadataDatabaseURL:     getEnv("METADATA_DATABASE_URL", ""),
 		DockerHost:              getEnv("DOCKER_HOST", "tcp://docker-socket-proxy:2375"),
 		ManagedNetworkName:      getEnv("MANAGED_NETWORK_NAME", "gestpg-managed"),

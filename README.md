@@ -21,7 +21,7 @@ cd ..
 docker compose up --build
 ```
 
-- Backend: http://localhost:8080 (`GET /api/v1/healthz`)
+- Backend: http://localhost:28080 (`GET /api/v1/healthz`)
 - Frontend: http://localhost:4173
 
 ## Estrutura

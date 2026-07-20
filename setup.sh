@@ -103,10 +103,10 @@ else
 	# mesmo (funciona só pra acessar de dentro da própria máquina).
 	PUBLIC_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 	if [[ -n "$PUBLIC_IP" ]]; then
-		sed -i "s#^PUBLIC_API_URL=.*#PUBLIC_API_URL=http://${PUBLIC_IP}:8080#" .env
-		ok "PUBLIC_API_URL detectado automaticamente: http://${PUBLIC_IP}:8080"
+		sed -i "s#^PUBLIC_API_URL=.*#PUBLIC_API_URL=http://${PUBLIC_IP}:28080#" .env
+		ok "PUBLIC_API_URL detectado automaticamente: http://${PUBLIC_IP}:28080"
 	else
-		warn "não consegui detectar IP público — PUBLIC_API_URL ficou localhost:8080 (edita o .env se for acessar de fora)"
+		warn "não consegui detectar IP público — PUBLIC_API_URL ficou localhost:28080 (edita o .env se for acessar de fora)"
 	fi
 
 	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env || true
@@ -226,7 +226,7 @@ log "subindo o stack (docker compose up --build -d)"
 
 log "esperando backend responder em /api/v1/healthz"
 for i in $(seq 1 30); do
-	if curl -fsS http://localhost:8080/api/v1/healthz >/dev/null 2>&1; then
+	if curl -fsS http://localhost:28080/api/v1/healthz >/dev/null 2>&1; then
 		ok "backend no ar"
 		break
 	fi
@@ -237,7 +237,7 @@ done
 echo
 ok "setup concluído"
 echo "  frontend: http://localhost:4173"
-echo "  backend:  http://localhost:8080/api/v1/healthz"
+echo "  backend:  http://localhost:28080/api/v1/healthz"
 echo "  logs:     docker compose logs -f"
 ADMIN_PASSWORD_SET="$(grep -m1 '^ADMIN_PASSWORD=' .env | cut -d= -f2-)"
 if [[ -n "$ADMIN_PASSWORD_SET" && "$ADMIN_PASSWORD_SET" != "troque-esta-senha" ]]; then

@@ -1,4 +1,4 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:28080";
 
 export type ServerStatus =
   | "creating"
@@ -358,7 +358,9 @@ export interface RegisterDiscoveredInput {
 
 export interface LogLine {
   timestamp: string;
+  level: string;
   text: string;
+  details?: string[];
   cpu_percent: number | null;
   connection_count: number | null;
 }
@@ -619,6 +621,8 @@ export interface TraefikStatus {
   enabled: boolean;
   running: boolean;
   acme_email?: string;
+  external_detected: boolean;
+  external_container_name?: string;
 }
 
 export interface ProxyRoute {
@@ -632,6 +636,8 @@ export interface ProxyRoute {
   strip_prefix: boolean;
   redirect_target?: string;
   redirect_permanent: boolean;
+  via_labels: boolean;
+  cert_resolver?: string;
   https_redirect: boolean;
   created_at: string;
 }
@@ -647,6 +653,8 @@ export interface CreateProxyRouteInput {
   redirect_target?: string;
   redirect_permanent?: boolean;
   https_redirect?: boolean;
+  via_labels?: boolean;
+  cert_resolver?: string;
 }
 
 export interface FirewallRule {
@@ -1075,9 +1083,6 @@ export const api = {
     request<{ status: string }>(`/api/v1/servers/${id}/activity/${pid}/terminate`, {
       method: "POST",
     }),
-
-  logs: (id: string, tail = 500) =>
-    request<{ logs: string }>(`/api/v1/servers/${id}/logs?tail=${tail}`),
 
   logsTimeline: (id: string, tail = 200) =>
     request<LogLine[]>(`/api/v1/servers/${id}/logs-timeline?tail=${tail}`),

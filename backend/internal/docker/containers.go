@@ -313,6 +313,39 @@ func (c *Client) ListAllContainers(ctx context.Context) ([]types.Container, erro
 	return containers, nil
 }
 
+// DetectExternalTraefik procura um Traefik já rodando no host que a
+// plataforma NÃO criou (ex: o Traefik interno do EasyPanel) — usado pelo modo
+// de rota via label Docker, que nunca recria/toca esse container, só o alvo.
+// Casa pelo nome da imagem contendo "traefik" (case-insensitive), ignorando
+// o próprio "gestpg-traefik". Devolve também as redes em que ele está, pra
+// quem chamar poder conectar o container alvo nelas (senão o Traefik externo
+// pode não alcançar o alvo mesmo enxergando o label certo via Docker provider).
+func (c *Client) DetectExternalTraefik(ctx context.Context) (name string, networks []string, found bool, err error) {
+	containers, err := c.ListAllContainers(ctx)
+	if err != nil {
+		return "", nil, false, err
+	}
+	for _, ct := range containers {
+		if !strings.Contains(strings.ToLower(ct.Image), "traefik") {
+			continue
+		}
+		var cName string
+		if len(ct.Names) > 0 {
+			cName = strings.TrimPrefix(ct.Names[0], "/")
+		}
+		if cName == "gestpg-traefik" {
+			continue
+		}
+		if ct.NetworkSettings != nil {
+			for netName := range ct.NetworkSettings.Networks {
+				networks = append(networks, netName)
+			}
+		}
+		return cName, networks, true, nil
+	}
+	return "", nil, false, nil
+}
+
 // ConnectNetwork anexa um container já existente (não criado por nós) à rede
 // gerenciada — necessário pra conseguir falar com ele pelo nome depois de
 // "adotado" via auto-descoberta. Idempotente: já conectado não é erro.

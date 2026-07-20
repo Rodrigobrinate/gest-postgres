@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, API_URL } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,8 +89,7 @@ export function GDriveConnection() {
               (tipo &ldquo;Web application&rdquo;) com a Drive API habilitada e a URI de redirecionamento
               autorizada apontando pra{" "}
               <span className="font-mono">
-                {typeof window !== "undefined" ? window.location.origin.replace("3000", "8080") : ""}
-                /api/v1/gdrive/callback
+                {API_URL}/api/v1/gdrive/callback
               </span>
               .
             </p>

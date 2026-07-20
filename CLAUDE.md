@@ -86,7 +86,7 @@ Excluir o servidor remove o pooler junto (best-effort, não trava a exclusão do
 - [ ] CPU/RAM/disco por container (docker stats) (falta disco — CPU/RAM ok)
 
 ### Logs
-- [x] ~~Visualizador de log do Postgres (tail básico, sem parsing estruturado ainda)~~
+- [x] ~~Visualizador de log do Postgres (tail básico, sem parsing estruturado ainda)~~ — ganhou parsing estruturado: tabela com nível extraído do texto (LOG/ERROR/WARNING/FATAL/PANIC/NOTICE/INFO/DEBUG, cor por nível, badge tipo Cloudflare Observability), linhas de continuação do Postgres (DETAIL/HINT/STATEMENT/CONTEXT/QUERY) agrupadas sob a linha principal e só visíveis expandindo, filtro por nível (chips) e por texto livre
 
 Tudo isso vive em `/servers/{id}` (clica no nome do servidor na lista) — abas: Monitoramento, Logs, Editor SQL, Tabelas, Extensões, Configuração, Usuários, Desempenho, Objetos, Funções. Backend conecta direto no Postgres gerenciado pela rede `gestpg-managed` (nome do container, não host_port). Verificado ponta a ponta no mesmo droplet a cada feature.
 
@@ -188,6 +188,15 @@ Mais pedidos do usuário fechando gap com EasyPanel, mesma sessão:
 - **Canais de notificação (Telegram + webhook) pra alerta** — `notification_channels`, cadastrado uma vez (token do bot cifrado, mesmo padrão de sempre) e referenciado por qualquer regra de alerta de qualquer servidor, em vez de colar a mesma URL/token em cada regra. Telegram vira mensagem de texto formatada via `sendMessage` do bot; webhook genérico continua mandando o payload JSON de sempre (regra sem canal ainda aceita URL direta, compatibilidade com o que já existia).
 - **Restaurar backup de volume genérico** (fechando o que a Leva 3 deixou incompleto — só existia criar/baixar/excluir, não restaurar) — mesmo padrão de 2 modos do restore de backup Postgres (criar volume novo vs sobrescrever existente). Sobrescrever limpa o volume via exec (`find -mindepth 1 -delete`, evita problema de expansão de glob com dotfile entre sh/bash) antes de extrair o tar — Docker não tem operação de archive API pra "limpar diretório".
 - Spinner no badge de status "Criando" (servidor Postgres).
+
+### Leva 5 — porta do backend, reuso de Traefik existente, logs estruturados, landing (2026-07-20)
+
+Pedido explícito do usuário. Verificado só via build local (`go build`/`go vet` cross-compilados + `tsc`/`eslint`/`next build`) — não implantado no droplet ainda nessa sessão.
+
+- **Porta do backend 8080 → 28080** (`docker-compose.yml`, `config.go`, `.env.example`, `setup.sh`, `README.md`, `frontend/src/lib/api.ts`) — 8080 é comum demais, colide com outras stacks no mesmo host. Achado no grep de varredura: `gdrive-connection.tsx` tinha um bug antigo (desde a troca 3000→4173 de uma leva anterior) — `window.location.origin.replace("3000", "8080")` não fazia mais nada porque "3000" já não existia na string, então a URI de redirecionamento OAuth mostrada pro usuário estava errada. Corrigido usando a constante `API_URL` direto.
+- **Reuso de Traefik já existente no host** (`docker.Client.DetectExternalTraefik`) — pedido explícito pra não subir um segundo Traefik brigando pelas portas 80/443 quando o host já roda um (ex: EasyPanel, ainda em uso enquanto essa plataforma amadurece). Quando detectado e o `gestpg-traefik` próprio não está habilitado, a tela de rotas passa a operar em modo "via labels": aplica os labels que o provider Docker do Traefik externo entende direto no container ALVO (nunca no Traefik em si) via o mesmo mecanismo de recriar-só-o-alvo já usado pra env var/volume (`docker.RecreateContainerWithLabels`, que primeiro remove qualquer label `traefik.*` antigo e depois aplica os novos — então um container só sustenta uma rota via label por vez nessa versão). Best-effort: conecta o alvo em toda rede que o Traefik externo já está, já que não há como saber a topologia de rede de quem administra ele; certResolver do TLS é campo opcional que o usuário preenche (a plataforma não tem como descobrir sozinha o nome do resolver ACME já configurado naquele Traefik).
+- **Logs do Postgres viraram tabela estruturada** (visual inspirado no Observability da Cloudflare) — nível extraído do texto por regex (não da posição, já que `log_line_prefix` é editável), cor por nível, linhas de continuação (DETAIL/HINT/STATEMENT/CONTEXT/QUERY) agrupadas e só aparecem expandindo a linha principal, filtro por nível (chips) e por texto livre.
+- **Landing page em `docs/index.html`** pra GitHub Pages (branch main, pasta `/docs`) — hero com o comando de instalação (`git clone` + `sudo ./setup.sh`) e botão de copiar.
 
 ---
 

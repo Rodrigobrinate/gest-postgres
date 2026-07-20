@@ -67,10 +67,17 @@ export function TraefikTab() {
   const [redirectTarget, setRedirectTarget] = useState("");
   const [redirectPermanent, setRedirectPermanent] = useState(true);
   const [httpsRedirect, setHttpsRedirect] = useState(false);
+  const [certResolver, setCertResolver] = useState("");
+
+  // Sem o gestpg-traefik habilitado, a única forma de rotear é via label no
+  // container alvo, apontando pro Traefik externo já detectado (ex:
+  // EasyPanel) — nunca criamos/recriamos esse Traefik.
+  const viaLabels = !status?.enabled && !!status?.external_detected;
+  const effectiveMode = viaLabels ? "proxy" : mode;
 
   const createRoute = useMutation({
     mutationFn: () => {
-      if (mode === "proxy") {
+      if (effectiveMode === "proxy") {
         return api.createProxyRoute({
           domain,
           target_container: targetContainer,
@@ -79,9 +86,11 @@ export function TraefikTab() {
           path_prefix: pathPrefix,
           strip_prefix: stripPrefix,
           https_redirect: httpsRedirect,
+          via_labels: viaLabels,
+          cert_resolver: viaLabels ? certResolver : undefined,
         });
       }
-      if (mode === "external") {
+      if (effectiveMode === "external") {
         return api.createProxyRoute({
           domain,
           target_url: targetUrl,
@@ -136,12 +145,17 @@ export function TraefikTab() {
                   {status.running ? "rodando" : "parado"}
                 </Badge>
               )}
+              {!status.enabled && status.external_detected && (
+                <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                  externo detectado
+                </Badge>
+              )}
             </span>
             {status.enabled ? (
               <Button size="sm" variant="outline" disabled={disable.isPending} onClick={() => disable.mutate()}>
                 {disable.isPending ? "Desabilitando..." : "Desabilitar"}
               </Button>
-            ) : (
+            ) : status.external_detected ? null : (
               <div className="flex items-center gap-2">
                 <Input
                   value={email}
@@ -158,12 +172,14 @@ export function TraefikTab() {
           <p className="text-muted-foreground mt-2 text-xs">
             {status.enabled
               ? `Publica 80/443 no host. Certificados automáticos via HTTP-01 (e-mail: ${status.acme_email}) — precisa do domínio já apontando pro IP desse servidor antes de criar a rota.`
-              : "Publica um container gerenciado num domínio próprio, com HTTPS automático via Let's Encrypt (desafio HTTP-01 — sem precisar de credencial de provedor de DNS)."}
+              : status.external_detected
+                ? `Já existe um Traefik rodando (container "${status.external_container_name}") — provavelmente do EasyPanel ou outra stack. Nunca subimos um segundo: as rotas abaixo aplicam label Docker direto no container alvo, que esse Traefik já detecta sozinho.`
+                : "Publica um container gerenciado num domínio próprio, com HTTPS automático via Let's Encrypt (desafio HTTP-01 — sem precisar de credencial de provedor de DNS)."}
           </p>
         </CardContent>
       </Card>
 
-      {status.enabled && (
+      {(status.enabled || status.external_detected) && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Rotas de domínio</CardTitle>
@@ -177,20 +193,27 @@ export function TraefikTab() {
                   <DialogTitle>Nova rota de domínio</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-3 py-2">
-                  <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-1.5 text-sm">
-                      <input type="radio" checked={mode === "proxy"} onChange={() => setMode("proxy")} />
-                      Proxy pra container
-                    </label>
-                    <label className="flex items-center gap-1.5 text-sm">
-                      <input type="radio" checked={mode === "redirect"} onChange={() => setMode("redirect")} />
-                      Redirecionamento
-                    </label>
-                    <label className="flex items-center gap-1.5 text-sm">
-                      <input type="radio" checked={mode === "external"} onChange={() => setMode("external")} />
-                      Destino externo
-                    </label>
-                  </div>
+                  {viaLabels ? (
+                    <p className="text-muted-foreground text-xs">
+                      Modo via labels só suporta proxy pra container (redirecionamento e destino
+                      externo exigem o gestpg-traefik com file provider).
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-1.5 text-sm">
+                        <input type="radio" checked={mode === "proxy"} onChange={() => setMode("proxy")} />
+                        Proxy pra container
+                      </label>
+                      <label className="flex items-center gap-1.5 text-sm">
+                        <input type="radio" checked={mode === "redirect"} onChange={() => setMode("redirect")} />
+                        Redirecionamento
+                      </label>
+                      <label className="flex items-center gap-1.5 text-sm">
+                        <input type="radio" checked={mode === "external"} onChange={() => setMode("external")} />
+                        Destino externo
+                      </label>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
@@ -208,7 +231,7 @@ export function TraefikTab() {
                     </div>
                   </div>
 
-                  {mode === "proxy" ? (
+                  {effectiveMode === "proxy" ? (
                     <>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="grid gap-1.5">
@@ -239,7 +262,7 @@ export function TraefikTab() {
                         </label>
                       )}
                     </>
-                  ) : mode === "redirect" ? (
+                  ) : effectiveMode === "redirect" ? (
                     <>
                       <div className="grid gap-1.5">
                         <Label>URL de destino</Label>
@@ -275,9 +298,25 @@ export function TraefikTab() {
 
                   <label className="flex items-center gap-1.5 text-sm">
                     <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} />
-                    HTTPS automático (Let&apos;s Encrypt)
+                    {viaLabels ? "HTTPS (via label tls no Traefik externo)" : "HTTPS automático (Let’s Encrypt)"}
                   </label>
-                  {mode !== "redirect" && tls && (
+                  {viaLabels && tls && (
+                    <div className="grid gap-1.5">
+                      <Label>Cert resolver do Traefik externo (opcional)</Label>
+                      <Input
+                        value={certResolver}
+                        onChange={(e) => setCertResolver(e.target.value)}
+                        placeholder="ex: letsencrypt"
+                        className="font-mono text-xs"
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        Nome do certResolver já configurado NAQUELE Traefik (não temos como
+                        descobrir sozinho — confira no compose/args dele). Vazio: label só pede TLS
+                        sem resolver, funciona se o Traefik externo já tiver um default.
+                      </p>
+                    </div>
+                  )}
+                  {!viaLabels && mode !== "redirect" && tls && (
                     <label className="flex items-center gap-1.5 text-sm">
                       <input
                         type="checkbox"
@@ -287,10 +326,11 @@ export function TraefikTab() {
                       Redirecionar http:// pra https:// automaticamente
                     </label>
                   )}
-                  {mode === "proxy" && (
+                  {effectiveMode === "proxy" && (
                     <p className="text-muted-foreground text-xs">
-                      Conecta o container alvo na rede gestpg-managed automaticamente se ele ainda não
-                      estiver nela.
+                      {viaLabels
+                        ? "Recria o container alvo com os labels do Traefik — nunca toca no Traefik externo. Se ele estiver numa rede diferente, conecta o alvo nela também (best-effort)."
+                        : "Conecta o container alvo na rede gestpg-managed automaticamente se ele ainda não estiver nela."}
                     </p>
                   )}
                 </div>
@@ -299,9 +339,9 @@ export function TraefikTab() {
                     disabled={
                       createRoute.isPending ||
                       !domain.trim() ||
-                      (mode === "proxy" && !targetContainer.trim()) ||
-                      (mode === "redirect" && !redirectTarget.trim()) ||
-                      (mode === "external" && !targetUrl.trim())
+                      (effectiveMode === "proxy" && !targetContainer.trim()) ||
+                      (effectiveMode === "redirect" && !redirectTarget.trim()) ||
+                      (effectiveMode === "external" && !targetUrl.trim())
                     }
                     onClick={() => createRoute.mutate()}
                   >
@@ -327,6 +367,7 @@ export function TraefikTab() {
                       </span>
                       <Badge variant="outline">{r.tls ? "https" : "http"}</Badge>
                       {r.https_redirect && <Badge variant="outline">http→https</Badge>}
+                      {r.via_labels && <Badge variant="outline">via label</Badge>}
                       <span className="text-muted-foreground font-mono text-xs">
                         {r.redirect_target
                           ? `↪ ${r.redirect_target} (${r.redirect_permanent ? "301" : "302"})`

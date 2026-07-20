@@ -169,7 +169,7 @@ func (h *GDriveHandler) SetConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // redirectURL monta a URL do próprio endpoint de callback a partir do que a
-// requisição atual enxerga — assim funciona tanto local (localhost:8080)
+// requisição atual enxerga — assim funciona tanto local (localhost:28080)
 // quanto atrás de qualquer domínio/porta pública sem precisar configurar
 // isso à parte. Precisa bater exatamente com o "URI de redirecionamento
 // autorizado" cadastrado no Google Cloud Console.
