@@ -15,7 +15,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { HardDrive, Plus, Trash2 } from "lucide-react";
+import { FileBrowser, type FileBrowserAdapter } from "@/components/infra/file-browser";
+import { FolderOpen, HardDrive, Plus, Trash2 } from "lucide-react";
 
 function formatBytes(bytes?: number) {
   if (!bytes) return "—";
@@ -56,6 +57,8 @@ export function VolumesTab() {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao remover volume"),
   });
 
+  const [browsing, setBrowsing] = useState<string | null>(null);
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -93,6 +96,9 @@ export function VolumesTab() {
                 <span className="truncate font-mono text-xs">{v.name}</span>
                 <div className="flex items-center gap-3">
                   <span className="text-muted-foreground text-xs">{formatBytes(v.size_bytes)}</span>
+                  <Button size="icon" variant="ghost" title="Arquivos" onClick={() => setBrowsing(v.name)}>
+                    <FolderOpen className="size-3.5" />
+                  </Button>
                   <Button
                     size="icon"
                     variant="ghost"
@@ -108,6 +114,30 @@ export function VolumesTab() {
           </ul>
         )}
       </CardContent>
+
+      {browsing && (
+        <Dialog open onOpenChange={(v) => !v && setBrowsing(null)}>
+          <DialogContent className="sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle className="font-mono text-sm">Arquivos — {browsing}</DialogTitle>
+            </DialogHeader>
+            <VolumeFileBrowser volumeName={browsing} />
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
+}
+
+function VolumeFileBrowser({ volumeName }: { volumeName: string }) {
+  const adapter: FileBrowserAdapter = {
+    list: (path) => api.listVolumeFiles(volumeName, path),
+    stat: (path) => api.statVolumeFile(volumeName, path),
+    read: (path) => api.readVolumeFile(volumeName, path),
+    write: (path, content) => api.writeVolumeFile(volumeName, path, content),
+    upload: (path, file) => api.uploadVolumeFile(volumeName, path, file),
+    remove: (path) => api.deleteVolumeFile(volumeName, path),
+    downloadUrl: (path) => api.volumeFileDownloadUrl(volumeName, path),
+  };
+  return <FileBrowser adapter={adapter} queryKeyPrefix={`volume-${volumeName}`} />;
 }

@@ -56,18 +56,44 @@ export function TraefikTab() {
   });
 
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"proxy" | "redirect">("proxy");
   const [domain, setDomain] = useState("");
   const [targetContainer, setTargetContainer] = useState("");
   const [targetPort, setTargetPort] = useState(80);
   const [tls, setTls] = useState(true);
+  const [pathPrefix, setPathPrefix] = useState("/");
+  const [stripPrefix, setStripPrefix] = useState(false);
+  const [redirectTarget, setRedirectTarget] = useState("");
+  const [redirectPermanent, setRedirectPermanent] = useState(true);
+  const [httpsRedirect, setHttpsRedirect] = useState(false);
 
   const createRoute = useMutation({
-    mutationFn: () => api.createProxyRoute({ domain, target_container: targetContainer, target_port: targetPort, tls }),
+    mutationFn: () =>
+      api.createProxyRoute(
+        mode === "proxy"
+          ? {
+              domain,
+              target_container: targetContainer,
+              target_port: targetPort,
+              tls,
+              path_prefix: pathPrefix,
+              strip_prefix: stripPrefix,
+              https_redirect: httpsRedirect,
+            }
+          : {
+              domain,
+              tls,
+              path_prefix: pathPrefix,
+              redirect_target: redirectTarget,
+              redirect_permanent: redirectPermanent,
+            }
+      ),
     onSuccess: () => {
       toast.success(`Rota "${domain}" criada`);
       setOpen(false);
       setDomain("");
       setTargetContainer("");
+      setRedirectTarget("");
       invalidateRoutes();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar rota"),
@@ -140,40 +166,113 @@ export function TraefikTab() {
                   <DialogTitle>Nova rota de domínio</DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-3 py-2">
-                  <div className="grid gap-1.5">
-                    <Label>Domínio</Label>
-                    <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="app.seudominio.com" />
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input type="radio" checked={mode === "proxy"} onChange={() => setMode("proxy")} />
+                      Proxy pra container
+                    </label>
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input type="radio" checked={mode === "redirect"} onChange={() => setMode("redirect")} />
+                      Redirecionamento
+                    </label>
                   </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
-                      <Label>Container alvo</Label>
-                      <Input
-                        value={targetContainer}
-                        onChange={(e) => setTargetContainer(e.target.value)}
-                        placeholder="meu-stack-web-1"
-                      />
+                      <Label>Domínio</Label>
+                      <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="app.seudominio.com" />
                     </div>
                     <div className="grid gap-1.5">
-                      <Label>Porta</Label>
+                      <Label>Caminho</Label>
                       <Input
-                        type="number"
-                        value={targetPort}
-                        onChange={(e) => setTargetPort(Number(e.target.value))}
+                        value={pathPrefix}
+                        onChange={(e) => setPathPrefix(e.target.value)}
+                        placeholder="/"
+                        className="font-mono text-xs"
                       />
                     </div>
                   </div>
+
+                  {mode === "proxy" ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="grid gap-1.5">
+                          <Label>Container alvo</Label>
+                          <Input
+                            value={targetContainer}
+                            onChange={(e) => setTargetContainer(e.target.value)}
+                            placeholder="meu-stack-web-1"
+                          />
+                        </div>
+                        <div className="grid gap-1.5">
+                          <Label>Porta</Label>
+                          <Input
+                            type="number"
+                            value={targetPort}
+                            onChange={(e) => setTargetPort(Number(e.target.value))}
+                          />
+                        </div>
+                      </div>
+                      {pathPrefix !== "/" && (
+                        <label className="flex items-center gap-1.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={stripPrefix}
+                            onChange={(e) => setStripPrefix(e.target.checked)}
+                          />
+                          Remover o prefixo do caminho antes de repassar pro container
+                        </label>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid gap-1.5">
+                        <Label>URL de destino</Label>
+                        <Input
+                          value={redirectTarget}
+                          onChange={(e) => setRedirectTarget(e.target.value)}
+                          placeholder="https://outro-dominio.com"
+                        />
+                      </div>
+                      <label className="flex items-center gap-1.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={redirectPermanent}
+                          onChange={(e) => setRedirectPermanent(e.target.checked)}
+                        />
+                        Permanente (301) — desmarcado usa temporário (302)
+                      </label>
+                    </>
+                  )}
+
                   <label className="flex items-center gap-1.5 text-sm">
                     <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} />
                     HTTPS automático (Let&apos;s Encrypt)
                   </label>
-                  <p className="text-muted-foreground text-xs">
-                    Conecta o container alvo na rede gestpg-managed automaticamente se ele ainda não
-                    estiver nela.
-                  </p>
+                  {mode === "proxy" && tls && (
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={httpsRedirect}
+                        onChange={(e) => setHttpsRedirect(e.target.checked)}
+                      />
+                      Redirecionar http:// pra https:// automaticamente
+                    </label>
+                  )}
+                  {mode === "proxy" && (
+                    <p className="text-muted-foreground text-xs">
+                      Conecta o container alvo na rede gestpg-managed automaticamente se ele ainda não
+                      estiver nela.
+                    </p>
+                  )}
                 </div>
                 <DialogFooter>
                   <Button
-                    disabled={createRoute.isPending || !domain.trim() || !targetContainer.trim()}
+                    disabled={
+                      createRoute.isPending ||
+                      !domain.trim() ||
+                      (mode === "proxy" ? !targetContainer.trim() : !redirectTarget.trim())
+                    }
                     onClick={() => createRoute.mutate()}
                   >
                     {createRoute.isPending ? "Criando..." : "Criar"}
@@ -192,10 +291,16 @@ export function TraefikTab() {
                 {routes.map((r) => (
                   <li key={r.id} className="flex items-center justify-between px-4 py-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono">{r.domain}</span>
+                      <span className="font-mono">
+                        {r.domain}
+                        {r.path_prefix !== "/" && r.path_prefix}
+                      </span>
                       <Badge variant="outline">{r.tls ? "https" : "http"}</Badge>
+                      {r.https_redirect && <Badge variant="outline">http→https</Badge>}
                       <span className="text-muted-foreground font-mono text-xs">
-                        → {r.target_container}:{r.target_port}
+                        {r.redirect_target
+                          ? `↪ ${r.redirect_target} (${r.redirect_permanent ? "301" : "302"})`
+                          : `→ ${r.target_container}:${r.target_port}${r.strip_prefix ? " (sem prefixo)" : ""}`}
                       </span>
                     </div>
                     <Button

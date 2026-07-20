@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -129,26 +130,47 @@ func (s *Service) DisableTraefik(ctx context.Context) error {
 }
 
 type ProxyRoute struct {
-	ID              string    `json:"id"`
-	Domain          string    `json:"domain"`
-	TargetContainer string    `json:"target_container"`
-	TargetPort      int       `json:"target_port"`
-	TLS             bool      `json:"tls"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID                string    `json:"id"`
+	Domain            string    `json:"domain"`
+	TargetContainer   string    `json:"target_container,omitempty"`
+	TargetPort        int       `json:"target_port,omitempty"`
+	TLS               bool      `json:"tls"`
+	PathPrefix        string    `json:"path_prefix"`
+	StripPrefix       bool      `json:"strip_prefix"`
+	RedirectTarget    string    `json:"redirect_target,omitempty"`
+	RedirectPermanent bool      `json:"redirect_permanent"`
+	HTTPSRedirect     bool      `json:"https_redirect"`
+	CreatedAt         time.Time `json:"created_at"`
 }
+
+func (r ProxyRoute) isRedirect() bool { return r.RedirectTarget != "" }
 
 type CreateProxyRouteInput struct {
 	Domain          string `json:"domain"`
-	TargetContainer string `json:"target_container"`
-	TargetPort      int    `json:"target_port"`
+	TargetContainer string `json:"target_container,omitempty"`
+	TargetPort      int    `json:"target_port,omitempty"`
 	TLS             bool   `json:"tls"`
+	// PathPrefix vazio vira "/" (raiz) — casa com qualquer path do domínio.
+	PathPrefix        string `json:"path_prefix,omitempty"`
+	StripPrefix       bool   `json:"strip_prefix,omitempty"`
+	RedirectTarget    string `json:"redirect_target,omitempty"`
+	RedirectPermanent bool   `json:"redirect_permanent,omitempty"`
+	// HTTPSRedirect só faz sentido com TLS=true — adiciona um segundo
+	// router no entrypoint "web" que redireciona pra https em vez de
+	// deixar a porta 80 sem router nenhum pra esse domínio (comportamento
+	// de hoje sem essa opção: TLS=true deixa http:// 404ando).
+	HTTPSRedirect bool `json:"https_redirect,omitempty"`
 }
 
 var domainRegex = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$`)
 var containerNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, domain, target_container, target_port, tls, created_at FROM proxy_routes ORDER BY created_at DESC`)
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, domain, target_container, target_port, tls,
+		       path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect, created_at
+		FROM proxy_routes ORDER BY created_at DESC
+	`)
 	if err != nil {
 		return nil, fmt.Errorf("listando rotas: %w", err)
 	}
@@ -156,7 +178,10 @@ func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 	out := make([]ProxyRoute, 0)
 	for rows.Next() {
 		var r ProxyRoute
-		if err := rows.Scan(&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TLS, &r.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TLS,
+			&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect, &r.CreatedAt,
+		); err != nil {
 			return nil, fmt.Errorf("lendo rota: %w", err)
 		}
 		out = append(out, r)
@@ -170,28 +195,54 @@ func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 // container pelo nome) e escreve o arquivo de config dinâmica que o file
 // provider do Traefik está observando — nunca precisa recriar o container
 // alvo só pra rotear um domínio novo.
+var pathPrefixRegex = regexp.MustCompile(`^/[a-zA-Z0-9._~/-]*$`)
+
 func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput) (*ProxyRoute, error) {
 	if !domainRegex.MatchString(in.Domain) {
 		return nil, fmt.Errorf("domínio inválido")
 	}
-	if !containerNameRegex.MatchString(in.TargetContainer) {
-		return nil, fmt.Errorf("nome de container inválido")
+	pathPrefix := in.PathPrefix
+	if pathPrefix == "" {
+		pathPrefix = "/"
 	}
-	if in.TargetPort <= 0 || in.TargetPort > 65535 {
-		return nil, fmt.Errorf("porta inválida")
+	if !pathPrefixRegex.MatchString(pathPrefix) {
+		return nil, fmt.Errorf("caminho inválido — precisa começar com /")
 	}
 
-	if err := s.docker.ConnectNetwork(ctx, s.networkName, in.TargetContainer); err != nil {
-		return nil, fmt.Errorf("conectando %q à rede gerenciada: %w", in.TargetContainer, err)
+	isRedirect := in.RedirectTarget != ""
+	if isRedirect {
+		if in.TargetContainer != "" || in.TargetPort != 0 {
+			return nil, fmt.Errorf("uma rota é proxy OU redirect, não os dois")
+		}
+		if _, err := url.ParseRequestURI(in.RedirectTarget); err != nil {
+			return nil, fmt.Errorf("URL de redirecionamento inválida")
+		}
+	} else {
+		if !containerNameRegex.MatchString(in.TargetContainer) {
+			return nil, fmt.Errorf("nome de container inválido")
+		}
+		if in.TargetPort <= 0 || in.TargetPort > 65535 {
+			return nil, fmt.Errorf("porta inválida")
+		}
+		if err := s.docker.ConnectNetwork(ctx, s.networkName, in.TargetContainer); err != nil {
+			return nil, fmt.Errorf("conectando %q à rede gerenciada: %w", in.TargetContainer, err)
+		}
 	}
 
 	var r ProxyRoute
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO proxy_routes (domain, target_container, target_port, tls)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, domain, target_container, target_port, tls, created_at
-	`, in.Domain, in.TargetContainer, in.TargetPort, in.TLS).Scan(
-		&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TLS, &r.CreatedAt,
+		INSERT INTO proxy_routes (
+			domain, target_container, target_port, tls,
+			path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, domain, target_container, target_port, tls,
+		          path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect, created_at
+	`, in.Domain, in.TargetContainer, in.TargetPort, in.TLS,
+		pathPrefix, in.StripPrefix, in.RedirectTarget, in.RedirectPermanent, in.HTTPSRedirect,
+	).Scan(
+		&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TLS,
+		&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect, &r.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("salvando rota: %w", err)
@@ -230,29 +281,81 @@ func dynamicConfigPath(domain string) string {
 	return "/traefik-dynamic/" + routeSafeName(domain) + ".yml"
 }
 
+// writeDynamicConfig monta o YAML do file provider do Traefik pra uma rota.
+// Redirect-only usa o service builtin `noop@internal` (não tem backend de
+// verdade, só middleware) — é o jeito documentado do Traefik de ter um
+// router que só redireciona. https_redirect adiciona um SEGUNDO router no
+// entrypoint "web" pro mesmo Host/path — sem isso, hoje (TLS=true sem essa
+// opção) a porta 80 não tem router nenhum pra esse domínio e 404a; com a
+// opção, ela redireciona pra https em vez de 404ar.
 func writeDynamicConfig(r ProxyRoute) error {
 	name := routeSafeName(r.Domain)
-	entrypoint := "web"
-	tlsBlock := ""
-	if r.TLS {
-		entrypoint = "websecure"
-		tlsBlock = "\n      tls:\n        certResolver: le"
+	pathPrefix := r.PathPrefix
+	if pathPrefix == "" {
+		pathPrefix = "/"
 	}
-	content := fmt.Sprintf(`http:
-  routers:
-    %s:
-      rule: "Host(`+"`%s`"+`)"
-      entryPoints:
-        - %s
-      service: %s%s
-  services:
-    %s:
-      loadBalancer:
-        servers:
-          - url: "http://%s:%d"
-`, name, r.Domain, entrypoint, name, tlsBlock, name, r.TargetContainer, r.TargetPort)
+	rule := fmt.Sprintf("Host(`%s`)", r.Domain)
+	if pathPrefix != "/" {
+		rule += fmt.Sprintf(" && PathPrefix(`%s`)", pathPrefix)
+	}
 
-	return os.WriteFile(dynamicConfigPath(r.Domain), []byte(content), 0o644)
+	var b strings.Builder
+	b.WriteString("http:\n")
+
+	stripMiddleware := !r.isRedirect() && r.StripPrefix && pathPrefix != "/"
+	httpsRedirectMiddleware := !r.isRedirect() && r.HTTPSRedirect && r.TLS
+
+	if r.isRedirect() || stripMiddleware || httpsRedirectMiddleware {
+		b.WriteString("  middlewares:\n")
+		if r.isRedirect() {
+			fmt.Fprintf(&b, "    %s-redirect:\n      redirectRegex:\n        regex: \"^.*\"\n        replacement: \"%s\"\n        permanent: %t\n",
+				name, r.RedirectTarget, r.RedirectPermanent)
+		}
+		if stripMiddleware {
+			fmt.Fprintf(&b, "    %s-strip:\n      stripPrefix:\n        prefixes:\n          - \"%s\"\n", name, pathPrefix)
+		}
+		if httpsRedirectMiddleware {
+			fmt.Fprintf(&b, "    %s-tohttps:\n      redirectScheme:\n        scheme: https\n        permanent: true\n", name)
+		}
+	}
+
+	b.WriteString("  routers:\n")
+
+	if r.isRedirect() {
+		entrypoints := []string{"web"}
+		tlsBlock := ""
+		if r.TLS {
+			entrypoints = append(entrypoints, "websecure")
+			tlsBlock = "\n      tls:\n        certResolver: le"
+		}
+		fmt.Fprintf(&b, "    %s:\n      rule: \"%s\"\n      entryPoints:\n", name, rule)
+		for _, ep := range entrypoints {
+			fmt.Fprintf(&b, "        - %s\n", ep)
+		}
+		fmt.Fprintf(&b, "      middlewares:\n        - %s-redirect\n      service: noop@internal%s\n", name, tlsBlock)
+	} else {
+		entrypoint := "web"
+		tlsBlock := ""
+		if r.TLS {
+			entrypoint = "websecure"
+			tlsBlock = "\n      tls:\n        certResolver: le"
+		}
+		fmt.Fprintf(&b, "    %s:\n      rule: \"%s\"\n      entryPoints:\n        - %s\n", name, rule, entrypoint)
+		if stripMiddleware {
+			fmt.Fprintf(&b, "      middlewares:\n        - %s-strip\n", name)
+		}
+		fmt.Fprintf(&b, "      service: %s%s\n", name, tlsBlock)
+
+		if httpsRedirectMiddleware {
+			fmt.Fprintf(&b, "    %s-web:\n      rule: \"%s\"\n      entryPoints:\n        - web\n      middlewares:\n        - %s-tohttps\n      service: noop@internal\n",
+				name, rule, name)
+		}
+
+		fmt.Fprintf(&b, "  services:\n    %s:\n      loadBalancer:\n        servers:\n          - url: \"http://%s:%d\"\n",
+			name, r.TargetContainer, r.TargetPort)
+	}
+
+	return os.WriteFile(dynamicConfigPath(r.Domain), []byte(b.String()), 0o644)
 }
 
 func removeDynamicConfig(domain string) error {

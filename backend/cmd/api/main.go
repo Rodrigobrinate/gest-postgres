@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gest-postgres/backend/internal/api"
+	"github.com/gest-postgres/backend/internal/auth"
 	"github.com/gest-postgres/backend/internal/config"
 	"github.com/gest-postgres/backend/internal/crypto"
 	"github.com/gest-postgres/backend/internal/db"
@@ -57,6 +58,11 @@ func run() error {
 		return err
 	}
 
+	authService := auth.NewService(pool)
+	if err := authService.SeedAdminIfMissing(ctx, cfg.AdminPassword); err != nil {
+		return err
+	}
+
 	repo := server.NewRepo(pool)
 	serverService := server.NewService(
 		repo,
@@ -73,9 +79,9 @@ func run() error {
 	go serverService.RunPlatformHistoryCollector(ctx, 15*time.Second)
 	go serverService.RunBackupSweep(ctx, 1*time.Minute)
 
-	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName)
+	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
 
-	router := api.NewRouter(serverService, infraService)
+	router := api.NewRouter(serverService, infraService, authService)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

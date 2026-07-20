@@ -30,6 +30,11 @@ type Config struct {
 	// os containers Postgres gerenciados.
 	ManagedPortRangeStart int
 	ManagedPortRangeEnd   int
+
+	// AdminPassword semeia o único usuário admin na primeira subida (ver
+	// internal/auth.SeedAdminIfMissing). Se vazia, uma senha aleatória é
+	// gerada e logada uma vez só — nunca sobe sem login nenhum.
+	AdminPassword string
 }
 
 func Load() (*Config, error) {
@@ -41,6 +46,7 @@ func Load() (*Config, error) {
 		CredentialEncryptionKey: getEnv("CREDENTIAL_ENCRYPTION_KEY", ""),
 		ManagedPortRangeStart:   55432,
 		ManagedPortRangeEnd:     56432,
+		AdminPassword:           getEnv("ADMIN_PASSWORD", ""),
 	}
 
 	if cfg.MetadataDatabaseURL == "" {

@@ -88,6 +88,68 @@ func (h *InfraHandler) ContainerLogs(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"logs": logs})
 }
 
+func (h *InfraHandler) ContainerDetail(w http.ResponseWriter, r *http.Request) {
+	detail, err := h.service.ContainerDetail(r.Context(), r.PathValue("containerId"))
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, detail)
+}
+
+func (h *InfraHandler) ContainerStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.service.ContainerStats(r.Context(), r.PathValue("containerId"))
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, stats)
+}
+
+func (h *InfraHandler) ContainerStatsHistory(w http.ResponseWriter, r *http.Request) {
+	history := h.service.ContainerStatsHistory(r.Context(), r.PathValue("containerId"))
+	httpx.WriteJSON(w, http.StatusOK, history)
+}
+
+type connectNetworkInput struct {
+	Network string `json:"network"`
+}
+
+func (h *InfraHandler) ConnectContainerNetwork(w http.ResponseWriter, r *http.Request) {
+	var in connectNetworkInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.ConnectContainerNetwork(r.Context(), r.PathValue("containerId"), in.Network); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *InfraHandler) DisconnectContainerNetwork(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DisconnectContainerNetwork(r.Context(), r.PathValue("containerId"), r.PathValue("networkName")); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *InfraHandler) AttachContainerVolume(w http.ResponseWriter, r *http.Request) {
+	var in infra.AttachVolumeInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	newID, err := h.service.AttachVolumeToContainer(r.Context(), r.PathValue("containerId"), in)
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"id": newID})
+}
+
 func (h *InfraHandler) ListNetworks(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.ListNetworks(r.Context())
 	if err != nil {
@@ -349,4 +411,58 @@ func (h *InfraHandler) RemoveFirewallRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *InfraHandler) ListGitCredentials(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.ListGitCredentials(r.Context())
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, list)
+}
+
+func (h *InfraHandler) CreateGitCredential(w http.ResponseWriter, r *http.Request) {
+	var in infra.CreateGitCredentialInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	cred, err := h.service.CreateGitCredential(r.Context(), in)
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, cred)
+}
+
+func (h *InfraHandler) DeleteGitCredential(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.DeleteGitCredential(r.Context(), r.PathValue("credentialId")); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type createFromGitResponse struct {
+	ID    string             `json:"id"`
+	Build *infra.BuildResult `json:"build,omitempty"`
+}
+
+func (h *InfraHandler) CreateContainerFromGit(w http.ResponseWriter, r *http.Request) {
+	var in infra.CreateContainerFromGitInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	id, build, err := h.service.CreateContainerFromGit(r.Context(), in)
+	if err != nil {
+		if build != nil {
+			httpx.WriteJSON(w, http.StatusUnprocessableEntity, createFromGitResponse{Build: build})
+			return
+		}
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, createFromGitResponse{ID: id, Build: build})
 }

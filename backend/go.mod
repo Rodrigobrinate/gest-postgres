@@ -20,6 +20,8 @@ require (
 require github.com/pkg/errors v0.9.1 // indirect
 
 require (
+	github.com/coder/websocket v1.8.15
+	golang.org/x/crypto v0.17.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.15.0
 )
@@ -37,7 +39,6 @@ require (
 	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

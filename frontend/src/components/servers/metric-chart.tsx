@@ -13,23 +13,32 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TimeRangeButtons, filterByRange } from "./timerange-buttons";
-import type { MetricPoint } from "@/lib/api";
 
 function formatTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-type Props = {
+type PointWithTimestamp = { timestamp: string };
+
+type Props<T extends PointWithTimestamp> = {
   title: string;
-  data: MetricPoint[];
-  dataKey: keyof MetricPoint;
+  data: T[];
+  dataKey: keyof T;
   color: string;
   unit?: string;
   formatValue?: (v: number) => string;
 };
 
-function Chart({ data, dataKey, color, unit, title, formatValue, height }: Props & { height: number }) {
+function Chart<T extends PointWithTimestamp>({
+  data,
+  dataKey,
+  color,
+  unit,
+  title,
+  formatValue,
+  height,
+}: Props<T> & { height: number }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
@@ -63,7 +72,7 @@ function Chart({ data, dataKey, color, unit, title, formatValue, height }: Props
         />
         <Line
           type="monotone"
-          dataKey={dataKey}
+          dataKey={dataKey as string}
           stroke={color}
           strokeWidth={2}
           dot={false}
@@ -75,7 +84,7 @@ function Chart({ data, dataKey, color, unit, title, formatValue, height }: Props
   );
 }
 
-export function MetricChart(props: Props) {
+export function MetricChart<T extends PointWithTimestamp>(props: Props<T>) {
   const { title, data } = props;
   const hasData = data.length >= 2;
   const [open, setOpen] = useState(false);

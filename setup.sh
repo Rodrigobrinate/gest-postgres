@@ -94,6 +94,7 @@ else
 	cp .env.example .env
 	sed -i "s/^METADATA_DB_PASSWORD=.*/METADATA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 	sed -i "s/^CREDENTIAL_ENCRYPTION_KEY=.*/CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)/" .env
+	sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
 
 	# PUBLIC_API_URL vira NEXT_PUBLIC_API_URL embutido no bundle JS do frontend em
 	# build time — precisa ser o IP/domínio que o NAVEGADOR do usuário alcança, não
@@ -110,6 +111,21 @@ else
 
 	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env || true
 	ok ".env criado com senha do metadata-db e chave de criptografia geradas"
+fi
+
+# ---------- 4.5. pasta do gerenciador de arquivos do host ----------
+# HOST_FILES_ROOT é a raiz (fora do container) que a aba "Arquivos do host"
+# expõe — precisa existir ANTES do `docker compose up`, senão o Docker cria
+# ela sozinho como root:root na hora do bind mount.
+HOST_FILES_ROOT_VALUE="$(grep -m1 '^HOST_FILES_ROOT=' .env | cut -d= -f2-)"
+HOST_FILES_ROOT_VALUE="${HOST_FILES_ROOT_VALUE:-/srv/gestpg-files}"
+if [[ -d "$HOST_FILES_ROOT_VALUE" ]]; then
+	ok "pasta do gerenciador de arquivos já existe ($HOST_FILES_ROOT_VALUE)"
+else
+	log "criando pasta do gerenciador de arquivos ($HOST_FILES_ROOT_VALUE)"
+	mkdir -p "$HOST_FILES_ROOT_VALUE"
+	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" "$HOST_FILES_ROOT_VALUE" || true
+	ok "pasta criada"
 fi
 
 # ---------- 5. backend/go.sum ----------
@@ -215,7 +231,13 @@ done
 
 echo
 ok "setup concluído"
-echo "  frontend: http://localhost:3000"
+echo "  frontend: http://localhost:4173"
 echo "  backend:  http://localhost:8080/api/v1/healthz"
 echo "  logs:     docker compose logs -f"
+ADMIN_PASSWORD_SET="$(grep -m1 '^ADMIN_PASSWORD=' .env | cut -d= -f2-)"
+if [[ -n "$ADMIN_PASSWORD_SET" && "$ADMIN_PASSWORD_SET" != "troque-esta-senha" ]]; then
+	echo "  login:    admin / ${ADMIN_PASSWORD_SET}  (guarda essa senha, só aparece aqui)"
+else
+	warn "ADMIN_PASSWORD não gerada (instalação existente de antes dessa versão) — o backend gera uma sozinha no primeiro boot, checa 'docker compose logs backend | grep -i senha'"
+fi
 [[ "$REAL_USER" != "root" ]] && echo -e "${c_yellow}!${c_reset} deslogue/logue de novo pra usar 'docker' sem sudo" || true

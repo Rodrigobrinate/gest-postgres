@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export type ServerStatus =
   | "creating"
@@ -446,6 +446,70 @@ export interface CreateContainerFromImageInput {
   network?: string;
 }
 
+export interface MountInfo {
+  source: string;
+  destination: string;
+  type: string;
+  name?: string;
+  rw: boolean;
+}
+
+export interface NetworkEndpoint {
+  ip_address: string;
+  gateway: string;
+  mac_address: string;
+}
+
+export interface ContainerDetail {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  running: boolean;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+  exit_code: number;
+  restart_policy: string;
+  labels: Record<string, string>;
+  env: string[];
+  command: string[];
+  mounts: MountInfo[];
+  networks: Record<string, NetworkEndpoint>;
+}
+
+export interface ContainerStatsSnapshot {
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_limit_mb: number;
+  memory_percent: number;
+  network_rx_bytes: number;
+  network_tx_bytes: number;
+  block_read_bytes: number;
+  block_write_bytes: number;
+  block_read_ops: number;
+  block_write_ops: number;
+}
+
+export interface ContainerMetricPoint {
+  timestamp: string;
+  cpu_percent: number;
+  memory_used_mb: number;
+  network_rx_bytes: number;
+  network_tx_bytes: number;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  mode: number;
+  mod_time: string;
+}
+
+export type HostFileEntry = FileEntry;
+
 export interface InfraNetwork {
   id: string;
   name: string;
@@ -485,23 +549,65 @@ export interface TraefikStatus {
 export interface ProxyRoute {
   id: string;
   domain: string;
-  target_container: string;
-  target_port: number;
+  target_container?: string;
+  target_port?: number;
   tls: boolean;
+  path_prefix: string;
+  strip_prefix: boolean;
+  redirect_target?: string;
+  redirect_permanent: boolean;
+  https_redirect: boolean;
   created_at: string;
 }
 
 export interface CreateProxyRouteInput {
   domain: string;
-  target_container: string;
-  target_port: number;
+  target_container?: string;
+  target_port?: number;
   tls: boolean;
+  path_prefix?: string;
+  strip_prefix?: boolean;
+  redirect_target?: string;
+  redirect_permanent?: boolean;
+  https_redirect?: boolean;
 }
 
 export interface FirewallRule {
   port: number;
   proto: "tcp" | "udp";
   action: "allow" | "deny";
+}
+
+export type GitCredentialKind = "ssh_key" | "pat";
+
+export interface GitCredential {
+  id: string;
+  name: string;
+  kind: GitCredentialKind;
+  username?: string;
+  created_at: string;
+}
+
+export interface CreateGitCredentialInput {
+  name: string;
+  kind: GitCredentialKind;
+  username?: string;
+  secret: string;
+}
+
+export interface CreateContainerFromGitInput {
+  name: string;
+  tag: string;
+  repo_url: string;
+  branch: string;
+  credential_id?: string;
+  env: Record<string, string>;
+  ports: Record<string, number>;
+}
+
+export interface CreateFromGitResult {
+  id: string;
+  build?: BuildResult;
 }
 
 export type BackupStorageKind = "local" | "gdrive";
@@ -641,11 +747,16 @@ class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...init?.headers,
     },
   });
+
+  if (res.status === 401 && typeof window !== "undefined" && path !== "/api/v1/auth/login") {
+    window.location.href = "/login";
+  }
 
   if (!res.ok) {
     let message = res.statusText;
@@ -671,6 +782,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function requestAllowDomainFailure<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok && res.status !== 422) {
@@ -1158,6 +1270,12 @@ export const api = {
       body: JSON.stringify(input),
     }),
 
+  createContainerFromGit: (input: CreateContainerFromGitInput) =>
+    requestAllowDomainFailure<CreateFromGitResult>(`/api/v1/infra/containers/from-git`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
   startInfraContainer: (id: string) =>
     request<{ status: string }>(`/api/v1/infra/containers/${id}/start`, { method: "POST" }),
 
@@ -1172,6 +1290,155 @@ export const api = {
 
   infraContainerLogs: (id: string, tail = 500) =>
     request<{ logs: string }>(`/api/v1/infra/containers/${id}/logs?tail=${tail}`),
+
+  containerDetail: (id: string) => request<ContainerDetail>(`/api/v1/infra/containers/${id}/inspect`),
+
+  containerStats: (id: string) => request<ContainerStatsSnapshot>(`/api/v1/infra/containers/${id}/stats`),
+
+  containerStatsHistory: (id: string) =>
+    request<ContainerMetricPoint[]>(`/api/v1/infra/containers/${id}/stats-history`),
+
+  connectContainerNetwork: (id: string, network: string) =>
+    request<{ status: string }>(`/api/v1/infra/containers/${id}/networks`, {
+      method: "POST",
+      body: JSON.stringify({ network }),
+    }),
+
+  disconnectContainerNetwork: (id: string, networkName: string) =>
+    request<void>(`/api/v1/infra/containers/${id}/networks/${networkName}`, { method: "DELETE" }),
+
+  attachContainerVolume: (
+    id: string,
+    input: { volume_name: string; mount_path: string; read_only: boolean }
+  ) =>
+    request<{ id: string }>(`/api/v1/infra/containers/${id}/volumes`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  listContainerFiles: (id: string, path: string) =>
+    request<FileEntry[]>(`/api/v1/infra/containers/${id}/files?path=${encodeURIComponent(path)}`),
+
+  statContainerFile: (id: string, path: string) =>
+    request<FileEntry>(`/api/v1/infra/containers/${id}/files/stat?path=${encodeURIComponent(path)}`),
+
+  readContainerFile: (id: string, path: string) =>
+    request<{ content: string }>(`/api/v1/infra/containers/${id}/files/content?path=${encodeURIComponent(path)}`),
+
+  writeContainerFile: (id: string, path: string, content: string) =>
+    request<{ status: string }>(`/api/v1/infra/containers/${id}/files/content?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+
+  uploadContainerFile: async (id: string, path: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(
+      `${API_URL}/api/v1/infra/containers/${id}/files/upload?path=${encodeURIComponent(path)}`,
+      { method: "POST", credentials: "include", body: form }
+    );
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // corpo não era JSON
+      }
+      throw new ApiError(res.status, message);
+    }
+    return res.json();
+  },
+
+  deleteContainerFile: (id: string, path: string) =>
+    request<void>(`/api/v1/infra/containers/${id}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+
+  containerFileDownloadUrl: (id: string, path: string) =>
+    `${API_URL}/api/v1/infra/containers/${id}/files/download?path=${encodeURIComponent(path)}`,
+
+  listVolumeFiles: (name: string, path: string) =>
+    request<FileEntry[]>(`/api/v1/infra/volumes/${name}/files?path=${encodeURIComponent(path)}`),
+
+  statVolumeFile: (name: string, path: string) =>
+    request<FileEntry>(`/api/v1/infra/volumes/${name}/files/stat?path=${encodeURIComponent(path)}`),
+
+  readVolumeFile: (name: string, path: string) =>
+    request<{ content: string }>(`/api/v1/infra/volumes/${name}/files/content?path=${encodeURIComponent(path)}`),
+
+  writeVolumeFile: (name: string, path: string, content: string) =>
+    request<{ status: string }>(`/api/v1/infra/volumes/${name}/files/content?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+
+  uploadVolumeFile: async (name: string, path: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(
+      `${API_URL}/api/v1/infra/volumes/${name}/files/upload?path=${encodeURIComponent(path)}`,
+      { method: "POST", credentials: "include", body: form }
+    );
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // corpo não era JSON
+      }
+      throw new ApiError(res.status, message);
+    }
+    return res.json();
+  },
+
+  deleteVolumeFile: (name: string, path: string) =>
+    request<void>(`/api/v1/infra/volumes/${name}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+
+  volumeFileDownloadUrl: (name: string, path: string) =>
+    `${API_URL}/api/v1/infra/volumes/${name}/files/download?path=${encodeURIComponent(path)}`,
+
+  listHostFiles: (path: string) =>
+    request<HostFileEntry[]>(`/api/v1/infra/host-files?path=${encodeURIComponent(path)}`),
+
+  statHostFile: (path: string) =>
+    request<HostFileEntry>(`/api/v1/infra/host-files/stat?path=${encodeURIComponent(path)}`),
+
+  readHostFile: (path: string) =>
+    request<{ content: string }>(`/api/v1/infra/host-files/content?path=${encodeURIComponent(path)}`),
+
+  writeHostFile: (path: string, content: string) =>
+    request<{ status: string }>(`/api/v1/infra/host-files/content?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+
+  uploadHostFile: async (path: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_URL}/api/v1/infra/host-files/upload?path=${encodeURIComponent(path)}`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    if (!res.ok) {
+      let message = res.statusText;
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // corpo não era JSON
+      }
+      throw new ApiError(res.status, message);
+    }
+    return res.json();
+  },
+
+  deleteHostFile: (path: string) =>
+    request<void>(`/api/v1/infra/host-files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+
+  hostFileDownloadUrl: (path: string) =>
+    `${API_URL}/api/v1/infra/host-files/download?path=${encodeURIComponent(path)}`,
 
   listInfraNetworks: () => request<InfraNetwork[]>(`/api/v1/infra/networks`),
 
@@ -1216,7 +1483,11 @@ export const api = {
     const form = new FormData();
     form.append("tag", tag);
     form.append("context", file);
-    const res = await fetch(`${API_URL}/api/v1/infra/build/upload`, { method: "POST", body: form });
+    const res = await fetch(`${API_URL}/api/v1/infra/build/upload`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
     if (!res.ok && res.status !== 422) {
       let message = res.statusText;
       try {
@@ -1262,6 +1533,33 @@ export const api = {
 
   removeFirewallRule: (port: number, proto: "tcp" | "udp") =>
     request<void>(`/api/v1/infra/firewall-rules/${port}/${proto}`, { method: "DELETE" }),
+
+  listGitCredentials: () => request<GitCredential[]>(`/api/v1/infra/git-credentials`),
+
+  createGitCredential: (input: CreateGitCredentialInput) =>
+    request<GitCredential>(`/api/v1/infra/git-credentials`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  removeGitCredential: (id: string) =>
+    request<void>(`/api/v1/infra/git-credentials/${id}`, { method: "DELETE" }),
+
+  login: (username: string, password: string) =>
+    request<{ ok: boolean }>(`/api/v1/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+
+  logout: () => request<{ ok: boolean }>(`/api/v1/auth/logout`, { method: "POST" }),
+
+  me: () => request<{ authenticated: boolean }>(`/api/v1/auth/me`),
+
+  stepUp: (password: string) =>
+    request<{ elevated_until: string }>(`/api/v1/auth/step-up`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
 };
 
 export { ApiError };

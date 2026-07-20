@@ -123,10 +123,16 @@ func (s *Service) CreateContainerFromImage(ctx context.Context, in CreateContain
 	}
 
 	return s.docker.CreateGenericContainer(ctx, docker.CreateGenericContainerInput{
-		Name:                 in.Name,
-		Image:                in.Image,
-		Env:                  env,
-		Ports:                ports,
+		Name:  in.Name,
+		Image: in.Image,
+		Env:   env,
+		Ports: ports,
+		// Marca quem passou por essa tela (Imagem/Dockerfile/Git — todos
+		// convergem aqui) — a página de detalhe usa isso pra diferenciar
+		// "container que a plataforma criou, recriar é seguro" de "container
+		// adotado de fora, recriar pra trocar volume é best-effort" (ver
+		// docker.RecreateContainerWithExtraBind).
+		Labels:               map[string]string{"gestpg.infra_created": "true"},
 		NetworkName:          networkName,
 		RestartUnlessStopped: true,
 	})

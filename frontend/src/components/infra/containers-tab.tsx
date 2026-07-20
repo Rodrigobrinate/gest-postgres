@@ -1,23 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError, type InfraContainer } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Box, FileText, Play, Plus, RotateCw, Square, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CreateContainerDialog } from "@/components/infra/create-container-dialog";
+import { ContainerLogsPane } from "@/components/infra/container-logs-pane";
+import { Box, FileText, Play, RotateCw, Square, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function ContainersTab() {
@@ -29,22 +23,6 @@ export function ContainersTab() {
 
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["infra-containers"] });
-
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [image, setImage] = useState("");
-
-  const create = useMutation({
-    mutationFn: () => api.createInfraContainer({ name, image, env: {}, ports: {} }),
-    onSuccess: () => {
-      toast.success("Container criado");
-      setOpen(false);
-      setName("");
-      setImage("");
-      invalidate();
-    },
-    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar container"),
-  });
 
   const action = useMutation({
     mutationFn: async (args: { id: string; op: "start" | "stop" | "restart" | "remove" }) => {
@@ -66,38 +44,7 @@ export function ContainersTab() {
           <Box className="size-4" />
           Containers
         </CardTitle>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger render={<Button size="sm" />}>
-            <Plus className="size-4" />
-            Novo container
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Novo container</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-3 py-2">
-              <div className="grid gap-1.5">
-                <Label>Nome</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="meu-container" />
-              </div>
-              <div className="grid gap-1.5">
-                <Label>Imagem</Label>
-                <Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="nginx:alpine" />
-              </div>
-              <p className="text-muted-foreground text-xs">
-                Sem portas/env por aqui — pra isso, use deploy via docker-compose.
-              </p>
-            </div>
-            <DialogFooter>
-              <Button
-                disabled={create.isPending || !name.trim() || !image.trim()}
-                onClick={() => create.mutate()}
-              >
-                {create.isPending ? "Criando..." : "Criar"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <CreateContainerDialog onCreated={invalidate} />
       </CardHeader>
       <CardContent className="p-0">
         {isLoading ? (
@@ -122,7 +69,12 @@ export function ContainersTab() {
                   <tr key={c.id} className="border-b last:border-0">
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-mono">{c.name}</span>
+                        <Link
+                          href={`/infra/containers/${c.id}`}
+                          className="truncate font-mono hover:underline"
+                        >
+                          {c.name}
+                        </Link>
                         {c.project && <Badge variant="outline">{c.project}</Badge>}
                       </div>
                     </td>
@@ -206,21 +158,13 @@ export function ContainersTab() {
 }
 
 function LogsDialog({ container, onClose }: { container: InfraContainer; onClose: () => void }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ["infra-container-logs", container.id],
-    queryFn: () => api.infraContainerLogs(container.id, 500),
-    refetchInterval: 3_000,
-  });
-
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="font-mono text-sm">{container.name}</DialogTitle>
         </DialogHeader>
-        <pre className="bg-muted max-h-[60vh] overflow-auto rounded-md p-3 text-xs">
-          {isLoading ? "Carregando..." : data?.logs || "Sem logs."}
-        </pre>
+        <ContainerLogsPane containerId={container.id} />
       </DialogContent>
     </Dialog>
   );

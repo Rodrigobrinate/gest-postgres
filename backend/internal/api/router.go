@@ -3,17 +3,24 @@ package api
 import (
 	"net/http"
 
+	"github.com/gest-postgres/backend/internal/auth"
 	"github.com/gest-postgres/backend/internal/httpx"
 	"github.com/gest-postgres/backend/internal/infra"
 	"github.com/gest-postgres/backend/internal/server"
 )
 
-func NewRouter(serverService *server.Service, infraService *infra.Service) http.Handler {
+func NewRouter(serverService *server.Service, infraService *infra.Service, authService *auth.Service) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	authHandler := NewAuthHandler(authService)
+	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
+	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
+	mux.HandleFunc("GET /api/v1/auth/me", authHandler.Me)
+	mux.HandleFunc("POST /api/v1/auth/step-up", authHandler.StepUp)
 
 	discovery := NewDiscoveryHandler(serverService)
 	mux.HandleFunc("GET /api/v1/discover", discovery.Discover)
@@ -91,13 +98,39 @@ func NewRouter(serverService *server.Service, infraService *infra.Service) http.
 	mux.HandleFunc("POST /api/v1/gdrive/disconnect", gdrive.Disconnect)
 
 	infraHandler := NewInfraHandler(infraService)
+	terminalHandler := NewTerminalHandler(infraService)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/exec", terminalHandler.Exec)
+
+	filesHandler := NewFilesHandler(infraService)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files", filesHandler.ListContainerFiles)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/stat", filesHandler.StatContainerFile)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/content", filesHandler.ReadContainerFile)
+	mux.HandleFunc("PUT /api/v1/infra/containers/{containerId}/files/content", filesHandler.WriteContainerFile)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/files/upload", filesHandler.UploadContainerFile)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/download", filesHandler.DownloadContainerFile)
+	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/files", filesHandler.DeleteContainerFile)
+
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files", filesHandler.ListVolumeFiles)
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/stat", filesHandler.StatVolumeFile)
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/content", filesHandler.ReadVolumeFile)
+	mux.HandleFunc("PUT /api/v1/infra/volumes/{volumeName}/files/content", filesHandler.WriteVolumeFile)
+	mux.HandleFunc("POST /api/v1/infra/volumes/{volumeName}/files/upload", filesHandler.UploadVolumeFile)
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/download", filesHandler.DownloadVolumeFile)
+	mux.HandleFunc("DELETE /api/v1/infra/volumes/{volumeName}/files", filesHandler.DeleteVolumeFile)
 	mux.HandleFunc("GET /api/v1/infra/containers", infraHandler.ListContainers)
 	mux.HandleFunc("POST /api/v1/infra/containers", infraHandler.CreateContainer)
+	mux.HandleFunc("POST /api/v1/infra/containers/from-git", infraHandler.CreateContainerFromGit)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/start", infraHandler.StartContainer)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/stop", infraHandler.StopContainer)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/restart", infraHandler.RestartContainer)
 	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}", infraHandler.RemoveContainer)
 	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/logs", infraHandler.ContainerLogs)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/inspect", infraHandler.ContainerDetail)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/stats", infraHandler.ContainerStats)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/stats-history", infraHandler.ContainerStatsHistory)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/networks", infraHandler.ConnectContainerNetwork)
+	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/networks/{networkName}", infraHandler.DisconnectContainerNetwork)
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/volumes", infraHandler.AttachContainerVolume)
 	mux.HandleFunc("GET /api/v1/infra/networks", infraHandler.ListNetworks)
 	mux.HandleFunc("POST /api/v1/infra/networks", infraHandler.CreateNetwork)
 	mux.HandleFunc("DELETE /api/v1/infra/networks/{networkId}", infraHandler.RemoveNetwork)
@@ -118,6 +151,18 @@ func NewRouter(serverService *server.Service, infraService *infra.Service) http.
 	mux.HandleFunc("GET /api/v1/infra/firewall-rules", infraHandler.ListFirewallRules)
 	mux.HandleFunc("POST /api/v1/infra/firewall-rules", infraHandler.AddFirewallRule)
 	mux.HandleFunc("DELETE /api/v1/infra/firewall-rules/{port}/{proto}", infraHandler.RemoveFirewallRule)
+	hostFilesHandler := NewHostFilesHandler(infraService)
+	mux.HandleFunc("GET /api/v1/infra/host-files", hostFilesHandler.List)
+	mux.HandleFunc("GET /api/v1/infra/host-files/stat", hostFilesHandler.Stat)
+	mux.HandleFunc("GET /api/v1/infra/host-files/content", hostFilesHandler.Read)
+	mux.HandleFunc("PUT /api/v1/infra/host-files/content", requireElevated(hostFilesHandler.Write))
+	mux.HandleFunc("POST /api/v1/infra/host-files/upload", requireElevated(hostFilesHandler.Upload))
+	mux.HandleFunc("GET /api/v1/infra/host-files/download", hostFilesHandler.Download)
+	mux.HandleFunc("DELETE /api/v1/infra/host-files", requireElevated(hostFilesHandler.Delete))
+
+	mux.HandleFunc("GET /api/v1/infra/git-credentials", infraHandler.ListGitCredentials)
+	mux.HandleFunc("POST /api/v1/infra/git-credentials", infraHandler.CreateGitCredential)
+	mux.HandleFunc("DELETE /api/v1/infra/git-credentials/{credentialId}", infraHandler.DeleteGitCredential)
 	mux.HandleFunc("GET /api/v1/servers/{id}/hba-rules", detail.ListHbaRules)
 	mux.HandleFunc("POST /api/v1/servers/{id}/hba-rules", detail.AddHbaRule)
 	mux.HandleFunc("POST /api/v1/servers/{id}/hba-rules/delete", detail.DeleteHbaRule)
@@ -172,5 +217,5 @@ func NewRouter(serverService *server.Service, infraService *infra.Service) http.
 	mux.HandleFunc("DELETE /api/v1/servers/{id}/alert-rules/{ruleId}", detail.DeleteAlertRule)
 	mux.HandleFunc("POST /api/v1/servers/{id}/alert-rules/{ruleId}/enabled", detail.SetAlertRuleEnabled)
 
-	return withCORS(withLogging(mux))
+	return withCORS(withAuth(authService)(withLogging(mux)))
 }

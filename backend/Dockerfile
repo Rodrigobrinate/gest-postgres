@@ -25,6 +25,11 @@ RUN apk add --no-cache ca-certificates postgresql17-client
 # var que o client Go usa), então o CLI fala com o Docker pelo mesmo caminho
 # mediado — nunca ganha acesso direto ao socket.
 RUN apk add --no-cache docker-cli docker-cli-compose
+# git + openssh-client: pra criar container a partir de um repositório Git
+# (aba Docker > Novo container > Git) — clona via os/exec, mesmo raciocínio
+# do docker-cli acima. openssh-client é o `ssh` que GIT_SSH_COMMAND usa pra
+# clone via chave privada de repositório privado.
+RUN apk add --no-cache git openssh-client
 COPY --from=build /out/api /usr/local/bin/api
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/api"]

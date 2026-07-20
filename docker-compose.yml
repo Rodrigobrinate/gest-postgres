@@ -60,12 +60,18 @@ services:
       POST: 1
       INFO: 1
       SYSTEM: 1
-      # BUILD: só pra `docker build`/`docker compose up --build` funcionarem
-      # (tela de Docker: build via Dockerfile). Categoria separada de EXEC —
-      # que continua desligada de propósito, nunca dá shell dentro de
-      # container gerenciado. Build de imagem não é a mesma coisa que
-      # executar comando num container já rodando.
+      # BUILD: pra `docker build`/`docker compose up --build` funcionarem
+      # (tela de Docker: build via Dockerfile).
       BUILD: 1
+      # EXEC: liga o terminal web dentro de containers (aba Docker > detalhe
+      # do container). Decisão consciente, pedida explicitamente — antes
+      # ficava desligada de propósito ("nunca dá shell dentro de container
+      # gerenciado"). Aumenta a superfície de ataque: quem alcança a UI
+      # autenticada consegue rodar qualquer comando dentro de qualquer
+      # container do host. Mitigado por exigir sessão autenticada em toda a
+      # API (ver internal/auth) — antes dessa mudança a API inteira era
+      # aberta sem login nenhum.
+      EXEC: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [gestpg-internal]
@@ -86,6 +92,12 @@ services:
       # inteira, só /etc (mesmo filesystem que / em qualquer droplet de disco
       # único, sem expor o resto da árvore do host pra dentro do container).
       - /etc:/hostfs:ro
+      # Raiz do gerenciador de arquivos do host (aba "Arquivos do host") —
+      # read-write de propósito, mas NUNCA a raiz inteira do filesystem:
+      # HOST_FILES_ROOT é uma pasta configurável (default /srv/gestpg-files),
+      # única fronteira alcançável de dentro do container. Diferente do mount
+      # de /etc acima (read-only, só pra medir disco via statfs).
+      - ${HOST_FILES_ROOT:-/srv/gestpg-files}:/hostfiles
       - backups_data:/backups
       - stacks_data:/stacks
       - traefik_dynamic_data:/traefik-dynamic
@@ -110,8 +122,12 @@ services:
         # serviço Docker interno.
         NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
     restart: unless-stopped
+    environment:
+      # 4173 em vez do 3000 default do Next.js — 3000 colide com um monte de
+      # outra coisa (React dev server, Grafana, etc) rodando no mesmo host.
+      PORT: "4173"
     ports:
-      - "3000:3000"
+      - "4173:4173"
     depends_on:
       - backend
     networks: [gestpg-internal]
