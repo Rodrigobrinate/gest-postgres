@@ -88,6 +88,10 @@ services:
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       MANAGED_NETWORK_NAME: gestpg-managed
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      # Faltava essa linha — sem ela o backend nunca via ADMIN_PASSWORD do
+      # .env e sempre caía no fallback de gerar senha aleatória sozinho
+      # (só logada dentro do container, nunca no output do setup.sh).
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     ports:
       - "8080:8080"
     volumes:
