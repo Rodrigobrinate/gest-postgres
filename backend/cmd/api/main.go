@@ -82,12 +82,21 @@ func run() error {
 	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
 	go infraService.RunCronSweep(ctx, 1*time.Minute)
 
-	router := api.NewRouter(serverService, infraService, authService)
+	router := api.NewRouter(serverService, infraService, authService, cfg.AllowedOrigins)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		// ReadTimeout generoso (não curto) — cobre corpo de upload de
+		// arquivo grande (file manager, contexto de build via upload) numa
+		// conexão lenta; ainda fecha o buraco de slow-loris no corpo (hoje
+		// só ReadHeaderTimeout existia, sem limite nenhum pro corpo).
+		// Sem WriteTimeout de propósito: bloquearia download de backup/
+		// arquivo grande e o WebSocket do terminal, que ficam abertos por
+		// tempo indeterminado por design.
+		ReadTimeout: 5 * time.Minute,
+		IdleTimeout: 120 * time.Second,
 	}
 
 	go func() {

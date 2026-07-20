@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,27 +23,35 @@ func withLogging(next http.Handler) http.Handler {
 	})
 }
 
-// withCORS libera o frontend a chamar a API. Origin é refletido (nunca "*")
-// porque o cookie de sessão exige Access-Control-Allow-Credentials: true, e
-// navegador nenhum aceita isso combinado com origin "*". Sem allowlist fixa
-// de origem porque essa é uma app self-hosted — o admin escolhe IP/domínio
-// na hora do deploy (ver PUBLIC_API_URL no setup.sh), não tem uma origem
-// única conhecida de antemão.
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if origin := r.Header.Get("Origin"); origin != "" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Vary", "Origin")
-		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+// withCORS libera o frontend a chamar a API. Origin só é refletido se
+// bater na allowlist (nunca "*", porque o cookie de sessão exige
+// Access-Control-Allow-Credentials: true, e navegador nenhum aceita isso
+// combinado com origin "*" — mas refletir QUALQUER Origin com credenciais é
+// igualmente perigoso: libera qualquer site a ler resposta autenticada
+// cross-origin, hoje só barrado por SameSite=Lax no cookie). A allowlist
+// vem do IP/domínio detectado pelo setup.sh (ALLOWED_ORIGINS), já que essa é
+// uma app self-hosted sem uma origem fixa conhecida de antemão.
+func withCORS(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if origin := r.Header.Get("Origin"); origin != "" && allowed[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Vary", "Origin")
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 const sessionCookieName = "gestpg_session"
@@ -54,22 +63,15 @@ var publicPaths = map[string]bool{
 	"/api/v1/healthz":    true,
 }
 
-// publicPathSuffixes é pra rota pública com segmento dinâmico no meio (o
-// webhook de auto-deploy do Git, /infra/git-deployments/{id}/webhook — quem
-// autentica ali é a assinatura HMAC do provedor, não sessão de usuário, ver
-// internal/api/git_deployments.go).
-var publicPathSuffixes = []string{"/webhook"}
+// gitWebhookPathRegex é a ÚNICA rota pública com segmento dinâmico no meio
+// (o webhook de auto-deploy do Git — quem autentica ali é a assinatura HMAC
+// do provedor, não sessão de usuário, ver internal/api/git_deployments.go).
+// Casamento exato do padrão da rota, não por sufixo — sufixo tornaria
+// pública qualquer rota futura que também termine em "/webhook".
+var gitWebhookPathRegex = regexp.MustCompile(`^/api/v1/infra/git-deployments/[^/]+/webhook$`)
 
 func isPublicPath(path string) bool {
-	if publicPaths[path] {
-		return true
-	}
-	for _, suffix := range publicPathSuffixes {
-		if strings.HasSuffix(path, suffix) {
-			return true
-		}
-	}
-	return false
+	return publicPaths[path] || gitWebhookPathRegex.MatchString(path)
 }
 
 // selfServicePaths são POST/DELETE que qualquer sessão autenticada pode

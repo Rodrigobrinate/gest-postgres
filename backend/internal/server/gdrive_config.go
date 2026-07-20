@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -114,17 +117,53 @@ func (s *Service) gdriveOAuthConfig(ctx context.Context, redirectURL string) (*o
 // garantem que a Google devolve um refresh_token de verdade — sem isso, numa
 // reautorização ela só devolve access_token, que expira em 1h e não dá pra
 // renovar sozinho depois.
+//
+// state é aleatório (32 bytes) e de uso único, guardado com expiração curta
+// — antes era a constante fixa "gestpg", nunca validada no callback, o que
+// não fornecia proteção nenhuma de CSRF (um atacante conseguia induzir um
+// admin logado a vincular a CONTA GOOGLE DO ATACANTE, redirecionando todo
+// backup futuro pro Drive dele).
 func (s *Service) GDriveAuthURL(ctx context.Context, redirectURL string) (string, error) {
 	cfg, err := s.gdriveOAuthConfig(ctx, redirectURL)
 	if err != nil {
 		return "", err
 	}
-	return cfg.AuthCodeURL("gestpg", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent")), nil
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("gerando state do oauth: %w", err)
+	}
+	state := hex.EncodeToString(buf)
+	_, err = s.repo.pool.Exec(ctx, `
+		UPDATE gdrive_connection SET oauth_state = $1, oauth_state_expires_at = now() + interval '10 minutes'
+		WHERE id = 1
+	`, state)
+	if err != nil {
+		return "", fmt.Errorf("salvando state do oauth: %w", err)
+	}
+	return cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent")), nil
 }
 
 // GDriveCallback troca o code pelo token e salva o refresh_token cifrado —
 // chamado pelo handler do redirect_uri configurado no Google Cloud Console.
-func (s *Service) GDriveCallback(ctx context.Context, code, redirectURL string) error {
+// state precisa bater com o gerado por GDriveAuthURL e não ter expirado;
+// é limpo (uso único) antes de qualquer outra coisa, sucesso ou falha.
+func (s *Service) GDriveCallback(ctx context.Context, code, state, redirectURL string) error {
+	var storedState string
+	var expiresAt *time.Time
+	err := s.repo.pool.QueryRow(ctx, `SELECT oauth_state, oauth_state_expires_at FROM gdrive_connection WHERE id = 1`).
+		Scan(&storedState, &expiresAt)
+	if err != nil && err != pgx.ErrNoRows {
+		return fmt.Errorf("lendo state do oauth: %w", err)
+	}
+	_, _ = s.repo.pool.Exec(ctx, `UPDATE gdrive_connection SET oauth_state = '', oauth_state_expires_at = NULL WHERE id = 1`)
+
+	if storedState == "" || subtle.ConstantTimeCompare([]byte(storedState), []byte(state)) != 1 {
+		return fmt.Errorf("%w: state do oauth inválido ou ausente — reinicie o fluxo de autorização", ErrValidation)
+	}
+	if expiresAt == nil || time.Now().After(*expiresAt) {
+		return fmt.Errorf("%w: state do oauth expirado — reinicie o fluxo de autorização", ErrValidation)
+	}
+
 	cfg, err := s.gdriveOAuthConfig(ctx, redirectURL)
 	if err != nil {
 		return err

@@ -182,7 +182,16 @@ func (c *Client) UploadFileToContainer(ctx context.Context, containerID, destDir
 // UploadArchiveToContainer extrai um tar cru (já descompactado por quem
 // chama, se preciso) dentro de destDir no container — é o reverso de
 // DownloadFromContainer, usado pra restaurar snapshot de volume (ver
-// internal/infra/volume_backups.go RestoreVolumeBackup).
+// internal/infra/volume_backups.go RestoreVolumeBackup). A extração em si
+// (tar-slip/CVE-2018-15664 e afins) é responsabilidade do PRÓPRIO Docker
+// Engine (server-side, dentro do dockerd), não reimplementamos parsing de
+// tar aqui — mas quem chama SEMPRE faz isso contra um container `alpine`
+// descartável com só o volume alvo montado em /vol (ver withVolumeHelper),
+// nunca contra um container/rootfs real: qualquer entrada que escape do
+// destDir cai no rootfs efêmero do helper, removido logo em seguida, não em
+// dado de verdade. Se um dia isso passar a extrair direto num container
+// "real" (não descartável), essa dependência do helper deixa de valer e
+// precisa de validação própria de path por entrada do tar antes disso.
 func (c *Client) UploadArchiveToContainer(ctx context.Context, containerID, destDir string, tarStream io.Reader) error {
 	if err := c.cli.CopyToContainer(ctx, containerID, destDir, tarStream, types.CopyToContainerOptions{}); err != nil {
 		return fmt.Errorf("restaurando arquivos no container %s: %w", containerID, err)

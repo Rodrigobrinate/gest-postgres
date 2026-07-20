@@ -10,11 +10,12 @@ import (
 )
 
 type TerminalHandler struct {
-	service *infra.Service
+	service        *infra.Service
+	allowedOrigins []string
 }
 
-func NewTerminalHandler(service *infra.Service) *TerminalHandler {
-	return &TerminalHandler{service: service}
+func NewTerminalHandler(service *infra.Service, allowedOrigins []string) *TerminalHandler {
+	return &TerminalHandler{service: service, allowedOrigins: allowedOrigins}
 }
 
 // termClientMessage é o envelope JSON que o frontend manda pro terminal —
@@ -31,14 +32,15 @@ type termClientMessage struct {
 // Exec abre um terminal interativo dentro do container via WebSocket. Fica
 // atrás de withAuth como qualquer outra rota — o handshake do WebSocket é
 // um GET normal, carrega o cookie de sessão automaticamente (same-site).
-// InsecureSkipVerify porque essa é uma app self-hosted sem origem fixa
-// conhecida (mesmo raciocínio do CORS por reflexão de Origin em
-// middleware.go) — o cookie de sessão é o controle de acesso real, não a
-// checagem de Origin do WebSocket.
+// OriginPatterns usa a mesma allowlist do CORS (ALLOWED_ORIGINS) em vez de
+// InsecureSkipVerify — esse é o endpoint mais perigoso da API (shell
+// interativo em qualquer container), então checar Origin é defesa em
+// profundidade real, não perfumaria: sem isso, uma página cross-site
+// conseguiria tentar abrir esse WS contando só com o SameSite=Lax do cookie.
 func (h *TerminalHandler) Exec(w http.ResponseWriter, r *http.Request) {
 	containerID := r.PathValue("containerId")
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: h.allowedOrigins})
 	if err != nil {
 		slog.Error("falha no upgrade do terminal", "error", err, "container_id", containerID)
 		return

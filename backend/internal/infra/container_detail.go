@@ -3,10 +3,25 @@ package infra
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/gest-postgres/backend/internal/docker"
 )
+
+// volumeNameRegex é a mesma gramática que o próprio Docker aceita pra nome
+// de volume — sem isso, VolumeName vira o campo "source" cru de um bind
+// spec (`<volumeName>:<mountPath>`): "/" monta a raiz do HOST no container
+// (Docker trata bind de host e de volume nomeado pelo mesmo campo), e ":"
+// embutido injeta um terceiro campo no spec (ex: modo "ro"/"rw" forjado).
+var volumeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+func validateVolumeName(name string) error {
+	if !volumeNameRegex.MatchString(name) {
+		return fmt.Errorf("nome de volume inválido")
+	}
+	return nil
+}
 
 func (s *Service) ContainerDetail(ctx context.Context, id string) (docker.ContainerDetail, error) {
 	return s.docker.InspectContainerFull(ctx, id)
@@ -60,8 +75,11 @@ func (s *Service) AttachVolumeToContainer(ctx context.Context, containerID strin
 	if in.VolumeName == "" || in.MountPath == "" {
 		return "", fmt.Errorf("volume e caminho de montagem são obrigatórios")
 	}
-	if !strings.HasPrefix(in.MountPath, "/") {
-		return "", fmt.Errorf("caminho de montagem deve ser absoluto")
+	if err := validateVolumeName(in.VolumeName); err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(in.MountPath, "/") || strings.Contains(in.MountPath, ":") {
+		return "", fmt.Errorf("caminho de montagem deve ser absoluto e sem ':'")
 	}
 	bind := in.VolumeName + ":" + in.MountPath
 	if in.ReadOnly {

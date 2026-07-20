@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -15,11 +16,73 @@ import (
 )
 
 var ErrInvalidCredentials = errors.New("usuário ou senha inválidos")
+var ErrRateLimited = errors.New("muitas tentativas — aguarde antes de tentar de novo")
 
 const (
 	sessionTTL = 30 * 24 * time.Hour
 	stepUpTTL  = 5 * time.Minute
 )
+
+// dummyPasswordHash é comparado quando o username não existe, pra gastar o
+// MESMO tempo de bcrypt que uma tentativa contra um usuário real — sem
+// isso, "usuário não existe" retorna quase instantaneamente (sem chamar
+// bcrypt) enquanto "senha errada" leva o tempo do bcrypt, permitindo
+// enumerar usuários válidos só pelo timing da resposta.
+var dummyPasswordHash = func() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte("gestpg-dummy-timing-safe"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()
+
+// loginThrottle é um limitador simples em memória por IP de origem — chave
+// por IP (não por username) de propósito: travar por username deixaria
+// qualquer atacante bloquear o admin de verdade só errando a senha de
+// "admin" repetidamente. Backoff exponencial, reseta ao acertar. Em memória
+// (reseta se o backend reiniciar) — condizente com o resto da plataforma,
+// que já é single-process, sem necessidade de coordenar entre réplicas.
+type loginThrottle struct {
+	mu       sync.Mutex
+	attempts map[string]*loginAttemptState
+}
+
+type loginAttemptState struct {
+	failures    int
+	lockedUntil time.Time
+}
+
+var throttle = &loginThrottle{attempts: make(map[string]*loginAttemptState)}
+
+func (t *loginThrottle) checkLocked(key string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if st, ok := t.attempts[key]; ok && time.Now().Before(st.lockedUntil) {
+		return ErrRateLimited
+	}
+	return nil
+}
+
+func (t *loginThrottle) recordFailure(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st, ok := t.attempts[key]
+	if !ok {
+		st = &loginAttemptState{}
+		t.attempts[key] = st
+	}
+	st.failures++
+	// 2^failures segundos, capado em ~2min — poucas tentativas erradas mal
+	// atrasam, tentativa persistente de brute-force fica cada vez mais lenta.
+	backoff := time.Duration(1<<uint(min(st.failures, 7))) * time.Second
+	st.lockedUntil = time.Now().Add(backoff)
+}
+
+func (t *loginThrottle) recordSuccess(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.attempts, key)
+}
 
 type Session struct {
 	ID            string
@@ -57,22 +120,35 @@ func hashToken(token string) string {
 // Login confere usuário/senha contra a tabela users e cria uma sessão nova.
 // Retorna o token em texto puro — só existe nesse retorno, o banco guarda
 // somente o hash (mesmo raciocínio de nunca persistir segredo em texto
-// puro usado no resto do projeto, ver internal/crypto).
-func (s *Service) Login(ctx context.Context, username, password string) (string, error) {
+// puro usado no resto do projeto, ver internal/crypto). clientKey identifica
+// quem está tentando (IP de origem) pro throttle — nunca o username, ver
+// loginThrottle.
+func (s *Service) Login(ctx context.Context, username, password, clientKey string) (string, error) {
+	if err := throttle.checkLocked(clientKey); err != nil {
+		return "", err
+	}
+
 	var userID, hash string
 	var role Role
 	err := s.pool.QueryRow(ctx, `SELECT id::text, password_hash, role FROM users WHERE username = $1`, username).
 		Scan(&userID, &hash, &role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			// Compara contra um hash dummy mesmo sem usuário — gasta o
+			// mesmo tempo de bcrypt que uma tentativa com usuário real,
+			// fecha a diferença de timing que permitiria enumerar usuários.
+			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+			throttle.recordFailure(clientKey)
 			return "", ErrInvalidCredentials
 		}
 		return "", fmt.Errorf("lendo usuário: %w", err)
 	}
 
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+		throttle.recordFailure(clientKey)
 		return "", ErrInvalidCredentials
 	}
+	throttle.recordSuccess(clientKey)
 
 	token, err := newToken()
 	if err != nil {

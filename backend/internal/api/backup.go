@@ -201,7 +201,8 @@ func (h *GDriveHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<html><body><p>Autorização cancelada ou sem código. Pode fechar essa aba.</p></body></html>`)
 		return
 	}
-	if err := h.service.GDriveCallback(r.Context(), code, redirectURL(r)); err != nil {
+	state := r.URL.Query().Get("state")
+	if err := h.service.GDriveCallback(r.Context(), code, state, redirectURL(r)); err != nil {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, `<html><body><p>Falha conectando ao Google Drive: %s</p></body></html>`, err.Error())

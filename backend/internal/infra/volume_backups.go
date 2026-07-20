@@ -57,6 +57,13 @@ func (s *Service) BackupVolume(ctx context.Context, volumeName string) (*VolumeB
 	if volumeName == "" {
 		return nil, fmt.Errorf("volume é obrigatório")
 	}
+	// Precisa validar ANTES de qualquer uso em path de arquivo — volumeName
+	// vira segmento de diretório logo abaixo (dir/path), e withVolumeHelper
+	// só valida depois, tarde demais pra evitar o MkdirAll/os.Create com um
+	// "../../etc/algo" não sanitizado.
+	if err := validateVolumeName(volumeName); err != nil {
+		return nil, err
+	}
 	filename := fmt.Sprintf("%s_%s.tar.gz", volumeName, time.Now().UTC().Format("20060102-150405"))
 	dir := filepath.Join(genericBackupsDir, volumeName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -149,6 +156,9 @@ func (s *Service) DownloadVolumeBackup(ctx context.Context, id string) (*VolumeB
 func (s *Service) RestoreVolumeBackup(ctx context.Context, backupID, targetVolumeName string, createNew bool) error {
 	if targetVolumeName == "" {
 		return fmt.Errorf("volume de destino é obrigatório")
+	}
+	if err := validateVolumeName(targetVolumeName); err != nil {
+		return err
 	}
 	b, err := s.getVolumeBackup(ctx, backupID)
 	if err != nil {

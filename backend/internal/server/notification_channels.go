@@ -5,9 +5,37 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"regexp"
 	"time"
 )
+
+// validateWebhookURL fecha SSRF cego: sem isso, um admin (ou uma sessão
+// abusada) cadastra um alerta/canal apontando pra serviço interno alcançável
+// do backend — metadata de nuvem (169.254.169.254), o próprio
+// docker-socket-proxy, localhost. Resolve o host e rejeita qualquer IP
+// loopback/link-local/privado — checagem na CRIAÇÃO do canal/regra, não a
+// cada disparo (mitiga na origem; DNS rebinding entre criação e disparo é um
+// risco residual aceito, mesmo escopo "admin-only, exfiltração limitada" que
+// o relatório de segurança já registrou pra esse item).
+func validateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return fmt.Errorf("%w: webhook_url inválida — precisa ser http:// ou https://", ErrValidation)
+	}
+	ips, err := net.LookupIP(u.Hostname())
+	if err != nil {
+		return fmt.Errorf("%w: não foi possível resolver o host de webhook_url", ErrValidation)
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+			return fmt.Errorf("%w: webhook_url não pode apontar pra endereço interno/privado", ErrValidation)
+		}
+	}
+	return nil
+}
 
 type NotificationChannelKind string
 
@@ -79,6 +107,8 @@ func (s *Service) CreateNotificationChannel(ctx context.Context, in CreateNotifi
 		}
 	} else if in.WebhookURL == "" {
 		return nil, fmt.Errorf("%w: webhook_url é obrigatório pra canal webhook", ErrValidation)
+	} else if err := validateWebhookURL(in.WebhookURL); err != nil {
+		return nil, err
 	}
 
 	var c NotificationChannel
@@ -160,19 +190,45 @@ func (s *Service) sendNotification(ctx context.Context, channel *NotificationCha
 	return postJSON(ctx, channel.WebhookURL, body)
 }
 
-func postJSON(ctx context.Context, url string, body []byte) error {
+// botTokenInURLRegex casa o token do bot embutido na URL do Telegram
+// (channel.WebhookURL = ".../bot<TOKEN>/sendMessage") — erro de transporte
+// do http.Client (*url.Error) inclui a URL INTEIRA na mensagem, então sem
+// redigir isso aqui o token vaza tanto no log de alerta quanto no corpo 422
+// devolvido pelo botão "Testar" da UI.
+var botTokenInURLRegex = regexp.MustCompile(`(api\.telegram\.org/bot)[^/]+`)
+
+func redactSecretsInError(err error) error {
+	if err == nil {
+		return nil
+	}
+	redacted := botTokenInURLRegex.ReplaceAllString(err.Error(), "${1}<redacted>")
+	return fmt.Errorf("%s", redacted)
+}
+
+// noRedirectClient nunca segue redirect — um alvo malicioso poderia
+// responder 30x apontando pra endereço interno depois da validação de
+// SSRF já ter passado no host original (checagem em validateWebhookURL
+// roda só na criação, não revalida cada hop).
+var noRedirectClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
+}
+
+func postJSON(ctx context.Context, targetURL string, body []byte) error {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return redactSecretsInError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := noRedirectClient.Do(req)
 	if err != nil {
-		return err
+		return redactSecretsInError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {

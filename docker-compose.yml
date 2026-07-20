@@ -82,6 +82,18 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    # O backend concentra bastante superfície sensível (credencial do
+    # docker-socket-proxy, socket do firewall-agent, HOST_FILES_ROOT) — não
+    # dá pra tirar o root do processo sem uma migração maior de ownership dos
+    # binds/volumes (fica de fora dessa leva, ver CLAUDE.md), mas isso aqui é
+    # de graça: nenhuma capability Linux extra é usada (sem raw socket, sem
+    # mexer em namespace/cgroup — docker-cli/git/ssh/pg_dump são todos
+    # user-space normais) e no-new-privileges fecha escalonamento via
+    # setuid/setgid bit em qualquer binário dentro da imagem.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       HTTP_ADDR: ":28080"
       METADATA_DATABASE_URL: postgres://${METADATA_DB_USER}:${METADATA_DB_PASSWORD}@metadata-db:5432/${METADATA_DB_NAME}?sslmode=disable
@@ -92,13 +104,16 @@ services:
       # .env e sempre caía no fallback de gerar senha aleatória sozinho
       # (só logada dentro do container, nunca no output do setup.sh).
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:4173}
     ports:
       - "28080:28080"
     volumes:
-      # Só pra medir disco real do host via statfs (dashboard) — não a raiz
-      # inteira, só /etc (mesmo filesystem que / em qualquer droplet de disco
-      # único, sem expor o resto da árvore do host pra dentro do container).
-      - /etc:/hostfs:ro
+      # Só pra medir disco real do host via statfs (dashboard) — statfs só
+      # precisa de QUALQUER caminho no mesmo filesystem que / (mesmo
+      # filesystem em qualquer droplet de disco único). Um arquivo único e
+      # inócuo, nunca o diretório /etc inteiro (que tem shadow/ssh/sudoers/
+      # cron — nenhum motivo pra isso ser legível de dentro do container).
+      - /etc/hostname:/hostfs:ro
       # Raiz do gerenciador de arquivos do host (aba "Arquivos do host") —
       # read-write de propósito, mas NUNCA a raiz inteira do filesystem:
       # HOST_FILES_ROOT é uma pasta configurável (default /srv/gestpg-files),

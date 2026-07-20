@@ -96,7 +96,12 @@ func (s *Service) AddHbaRule(ctx context.Context, id string, in AddHbaRuleInput)
 		return fmt.Errorf("%w: endereço/CIDR é obrigatório pra regras host*", ErrValidation)
 	}
 	for _, f := range []string{in.Database, in.UserName, in.Address} {
-		if strings.ContainsAny(f, "\n\r#") {
+		// Espaço/tab embutido faz "smuggling" de token — o parser do
+		// pg_hba.conf quebra em qualquer whitespace, então um valor tipo
+		// `"foo\tall"` em Database vira DOIS campos (database E user)
+		// escondidos num só, driblando a intenção de quem preencheu o
+		// formulário.
+		if strings.ContainsAny(f, "\n\r#") || strings.ContainsAny(f, " \t") {
 			return fmt.Errorf("%w: campo contém caractere inválido", ErrValidation)
 		}
 	}

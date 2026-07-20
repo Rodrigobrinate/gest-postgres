@@ -13,11 +13,12 @@ import (
 // /hostfs (ver docker-compose.yml) — sem esse mount, retorna erro e quem
 // chama trata como "não disponível" em vez de quebrar.
 //
-// Monta só /etc (não a raiz inteira) de propósito: statfs só precisa de UM
-// caminho que esteja no mesmo filesystem que se quer medir, e num droplet de
-// disco único (o cenário do setup.sh) /etc e / são sempre o mesmo filesystem
-// — dá o número certo sem expor a árvore inteira do host de leitura dentro
-// do container.
+// Monta só um arquivo único (/etc/hostname, não /etc inteiro nem a raiz) de
+// propósito: statfs só precisa de UM caminho que esteja no mesmo filesystem
+// que se quer medir — não importa se é arquivo ou diretório — e num droplet
+// de disco único (o cenário do setup.sh) qualquer arquivo de /etc está no
+// mesmo filesystem que /. Um arquivo isolado dá o número certo sem expor
+// shadow/ssh/sudoers/cron (o resto de /etc) de leitura dentro do container.
 func HostDiskUsage() (totalBytes, usedBytes, freeBytes int64, err error) {
 	var stat unix.Statfs_t
 	if err := unix.Statfs("/hostfs", &stat); err != nil {

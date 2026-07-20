@@ -42,6 +42,9 @@ func (s *Service) CreateBackupPolicy(ctx context.Context, serverID string, in Cr
 	if in.DatabaseName == "" {
 		return nil, fmt.Errorf("%w: database é obrigatório", ErrValidation)
 	}
+	if !identRegex.MatchString(in.DatabaseName) {
+		return nil, fmt.Errorf("%w: nome de database inválido", ErrValidation)
+	}
 	if _, err := s.storageByName(ctx, in.Storage); err != nil {
 		return nil, err
 	}

@@ -41,6 +41,11 @@ func (s *Service) CreateAlertRule(ctx context.Context, id string, in CreateAlert
 	if in.WebhookURL == "" && in.ChannelID == "" {
 		return nil, fmt.Errorf("%w: escolha um canal salvo ou informe uma webhook_url", ErrValidation)
 	}
+	if in.WebhookURL != "" {
+		if err := validateWebhookURL(in.WebhookURL); err != nil {
+			return nil, err
+		}
+	}
 	if in.Threshold <= 0 {
 		return nil, fmt.Errorf("%w: threshold deve ser positivo", ErrValidation)
 	}

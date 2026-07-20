@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -35,6 +36,13 @@ type Config struct {
 	// internal/auth.SeedAdminIfMissing). Se vazia, uma senha aleatória é
 	// gerada e logada uma vez só — nunca sobe sem login nenhum.
 	AdminPassword string
+
+	// AllowedOrigins é a allowlist de CORS — nunca reflete Origin
+	// incondicionalmente (isso libera qualquer site a fazer request
+	// cross-origin com o cookie de sessão anexado). Populada pelo setup.sh
+	// com o IP/domínio público detectado; setável à mão via ALLOWED_ORIGINS
+	// (lista separada por vírgula) se o admin trocar de domínio depois.
+	AllowedOrigins []string
 }
 
 func Load() (*Config, error) {
@@ -47,6 +55,7 @@ func Load() (*Config, error) {
 		ManagedPortRangeStart:   55432,
 		ManagedPortRangeEnd:     56432,
 		AdminPassword:           getEnv("ADMIN_PASSWORD", ""),
+		AllowedOrigins:          splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:4173")),
 	}
 
 	if cfg.MetadataDatabaseURL == "" {
@@ -64,4 +73,15 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func splitCSV(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

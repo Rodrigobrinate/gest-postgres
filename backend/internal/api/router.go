@@ -9,7 +9,7 @@ import (
 	"github.com/gest-postgres/backend/internal/server"
 )
 
-func NewRouter(serverService *server.Service, infraService *infra.Service, authService *auth.Service) http.Handler {
+func NewRouter(serverService *server.Service, infraService *infra.Service, authService *auth.Service, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +47,7 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("DELETE /api/v1/servers/{id}", servers.Delete)
 
 	detail := NewDetailHandler(serverService)
-	mux.HandleFunc("GET /api/v1/servers/{id}/password", detail.Password)
+	mux.HandleFunc("GET /api/v1/servers/{id}/password", requireAdmin(detail.Password))
 	mux.HandleFunc("POST /api/v1/servers/{id}/password/rotate", detail.RotateSuperuserPassword)
 	mux.HandleFunc("POST /api/v1/servers/{id}/roles/{name}/rotate-password", detail.RotateRolePassword)
 	mux.HandleFunc("GET /api/v1/servers/{id}/databases", detail.Databases)
@@ -110,25 +110,30 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("POST /api/v1/gdrive/disconnect", gdrive.Disconnect)
 
 	infraHandler := NewInfraHandler(infraService)
-	terminalHandler := NewTerminalHandler(infraService)
+	terminalHandler := NewTerminalHandler(infraService, allowedOrigins)
 	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/exec", terminalHandler.Exec)
 
+	// Leitura/escrita de arquivo de container/volume é tratada como
+	// privilegiada (requireAdmin) e a escrita/exclusão pede step-up também,
+	// paridade com o file manager de host — sem isso um viewer lê
+	// /proc/1/environ de qualquer container (inclusive o do próprio backend,
+	// que carrega CREDENTIAL_ENCRYPTION_KEY) só com uma sessão de leitura.
 	filesHandler := NewFilesHandler(infraService)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files", filesHandler.ListContainerFiles)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/stat", filesHandler.StatContainerFile)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/content", filesHandler.ReadContainerFile)
-	mux.HandleFunc("PUT /api/v1/infra/containers/{containerId}/files/content", filesHandler.WriteContainerFile)
-	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/files/upload", filesHandler.UploadContainerFile)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/download", filesHandler.DownloadContainerFile)
-	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/files", filesHandler.DeleteContainerFile)
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files", requireAdmin(filesHandler.ListContainerFiles))
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/stat", requireAdmin(filesHandler.StatContainerFile))
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/content", requireAdmin(filesHandler.ReadContainerFile))
+	mux.HandleFunc("PUT /api/v1/infra/containers/{containerId}/files/content", requireElevated(filesHandler.WriteContainerFile))
+	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/files/upload", requireElevated(filesHandler.UploadContainerFile))
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/files/download", requireAdmin(filesHandler.DownloadContainerFile))
+	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/files", requireElevated(filesHandler.DeleteContainerFile))
 
-	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files", filesHandler.ListVolumeFiles)
-	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/stat", filesHandler.StatVolumeFile)
-	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/content", filesHandler.ReadVolumeFile)
-	mux.HandleFunc("PUT /api/v1/infra/volumes/{volumeName}/files/content", filesHandler.WriteVolumeFile)
-	mux.HandleFunc("POST /api/v1/infra/volumes/{volumeName}/files/upload", filesHandler.UploadVolumeFile)
-	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/download", filesHandler.DownloadVolumeFile)
-	mux.HandleFunc("DELETE /api/v1/infra/volumes/{volumeName}/files", filesHandler.DeleteVolumeFile)
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files", requireAdmin(filesHandler.ListVolumeFiles))
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/stat", requireAdmin(filesHandler.StatVolumeFile))
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/content", requireAdmin(filesHandler.ReadVolumeFile))
+	mux.HandleFunc("PUT /api/v1/infra/volumes/{volumeName}/files/content", requireElevated(filesHandler.WriteVolumeFile))
+	mux.HandleFunc("POST /api/v1/infra/volumes/{volumeName}/files/upload", requireElevated(filesHandler.UploadVolumeFile))
+	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/files/download", requireAdmin(filesHandler.DownloadVolumeFile))
+	mux.HandleFunc("DELETE /api/v1/infra/volumes/{volumeName}/files", requireElevated(filesHandler.DeleteVolumeFile))
 	mux.HandleFunc("GET /api/v1/infra/containers", infraHandler.ListContainers)
 	mux.HandleFunc("POST /api/v1/infra/containers", infraHandler.CreateContainer)
 	mux.HandleFunc("POST /api/v1/infra/containers/from-git", infraHandler.CreateContainerFromGit)
@@ -253,5 +258,5 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("DELETE /api/v1/servers/{id}/alert-rules/{ruleId}", detail.DeleteAlertRule)
 	mux.HandleFunc("POST /api/v1/servers/{id}/alert-rules/{ruleId}/enabled", detail.SetAlertRuleEnabled)
 
-	return withCORS(withAuth(authService)(withLogging(mux)))
+	return withCORS(allowedOrigins)(withAuth(authService)(withLogging(mux)))
 }

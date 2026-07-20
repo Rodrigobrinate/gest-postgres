@@ -11,6 +11,29 @@ import (
 	"github.com/gest-postgres/backend/internal/docker"
 )
 
+// ownPlatformServices são os serviços do NOSSO próprio stack (mesmo mapa da
+// auto-descoberta, ver server/discovery.go) — nunca alvo do file manager de
+// container. Sem essa checagem, uma sessão com acesso de leitura ao file
+// manager lê /proc/1/environ do container do BACKEND, que carrega
+// CREDENTIAL_ENCRYPTION_KEY — decifra todo segredo guardado na plataforma.
+var ownPlatformServices = map[string]bool{
+	"metadata-db":         true,
+	"docker-socket-proxy": true,
+	"backend":             true,
+	"frontend":            true,
+}
+
+func (s *Service) guardNotOwnContainer(ctx context.Context, containerID string) error {
+	detail, err := s.docker.InspectContainerFull(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if ownPlatformServices[detail.Labels["com.docker.compose.service"]] {
+		return fmt.Errorf("gerenciamento de arquivo bloqueado nos containers da própria plataforma")
+	}
+	return nil
+}
+
 func validatePath(p string) (string, error) {
 	if p == "" {
 		p = "/"
@@ -18,7 +41,14 @@ func validatePath(p string) (string, error) {
 	if !strings.HasPrefix(p, "/") {
 		return "", fmt.Errorf("caminho deve ser absoluto")
 	}
-	return path.Clean(p), nil
+	clean := path.Clean(p)
+	// /proc expõe o ambiente/memória do processo vivo do container (ex:
+	// /proc/1/environ) — nunca faz sentido navegar ali num file manager de
+	// "arquivo", só serve pra vazar segredo de env var.
+	if clean == "/proc" || strings.HasPrefix(clean, "/proc/") {
+		return "", fmt.Errorf("/proc não é acessível pelo gerenciador de arquivos")
+	}
+	return clean, nil
 }
 
 // validateMutablePath é mais estrito — usado só pra escrita/upload/exclusão,
@@ -35,7 +65,7 @@ func validateMutablePath(p string) (string, error) {
 }
 
 func validateFilename(name string) error {
-	if name == "" || strings.ContainsAny(name, "/\\") {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
 		return fmt.Errorf("nome de arquivo inválido")
 	}
 	return nil
@@ -44,6 +74,9 @@ func validateFilename(name string) error {
 // --- container ---
 
 func (s *Service) ListContainerDirectory(ctx context.Context, containerID, dirPath string) ([]docker.FileEntry, error) {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return nil, err
+	}
 	dirPath, err := validatePath(dirPath)
 	if err != nil {
 		return nil, err
@@ -52,6 +85,9 @@ func (s *Service) ListContainerDirectory(ctx context.Context, containerID, dirPa
 }
 
 func (s *Service) ReadContainerFile(ctx context.Context, containerID, filePath string) ([]byte, error) {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return nil, err
+	}
 	filePath, err := validatePath(filePath)
 	if err != nil {
 		return nil, err
@@ -60,6 +96,9 @@ func (s *Service) ReadContainerFile(ctx context.Context, containerID, filePath s
 }
 
 func (s *Service) WriteContainerFile(ctx context.Context, containerID, filePath string, content []byte) error {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return err
+	}
 	filePath, err := validateMutablePath(filePath)
 	if err != nil {
 		return err
@@ -68,6 +107,9 @@ func (s *Service) WriteContainerFile(ctx context.Context, containerID, filePath 
 }
 
 func (s *Service) UploadContainerPath(ctx context.Context, containerID, destDir, filename string, content io.Reader, size int64) error {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return err
+	}
 	destDir, err := validatePath(destDir)
 	if err != nil {
 		return err
@@ -79,6 +121,9 @@ func (s *Service) UploadContainerPath(ctx context.Context, containerID, destDir,
 }
 
 func (s *Service) DownloadContainerPath(ctx context.Context, containerID, srcPath string) (io.ReadCloser, types.ContainerPathStat, error) {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return nil, types.ContainerPathStat{}, err
+	}
 	srcPath, err := validatePath(srcPath)
 	if err != nil {
 		return nil, types.ContainerPathStat{}, err
@@ -90,6 +135,9 @@ func (s *Service) DownloadContainerPath(ctx context.Context, containerID, srcPat
 // caminho sem baixar o conteúdo — usado pela tela de "propriedades" do
 // file manager.
 func (s *Service) StatContainerPath(ctx context.Context, containerID, targetPath string) (docker.FileEntry, error) {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return docker.FileEntry{}, err
+	}
 	targetPath, err := validatePath(targetPath)
 	if err != nil {
 		return docker.FileEntry{}, err
@@ -109,6 +157,9 @@ func (s *Service) StatContainerPath(ctx context.Context, containerID, targetPath
 }
 
 func (s *Service) DeleteContainerPath(ctx context.Context, containerID, targetPath string) error {
+	if err := s.guardNotOwnContainer(ctx, containerID); err != nil {
+		return err
+	}
 	targetPath, err := validateMutablePath(targetPath)
 	if err != nil {
 		return err
@@ -132,6 +183,9 @@ const (
 // volume" aqui é sempre "gerenciar arquivo de um container que tem esse
 // volume montado", só que descartável.
 func (s *Service) withVolumeHelper(ctx context.Context, volumeName string, fn func(helperID string) error) error {
+	if err := validateVolumeName(volumeName); err != nil {
+		return err
+	}
 	if err := s.docker.PullImageIfMissing(ctx, fileHelperImage); err != nil {
 		return err
 	}
@@ -218,6 +272,9 @@ func (s *Service) UploadVolumePath(ctx context.Context, volumeName, destDir, fil
 // stream inteiro já foi consumido, então quem chama recebe também uma
 // função de limpeza pra rodar no fim (defer no handler).
 func (s *Service) DownloadVolumePath(ctx context.Context, volumeName, srcPath string) (io.ReadCloser, types.ContainerPathStat, func(), error) {
+	if err := validateVolumeName(volumeName); err != nil {
+		return nil, types.ContainerPathStat{}, nil, err
+	}
 	full, err := volumeInternalPath(srcPath)
 	if err != nil {
 		return nil, types.ContainerPathStat{}, nil, err

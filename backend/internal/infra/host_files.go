@@ -61,7 +61,12 @@ func resolveHostPath(userPath string) (string, error) {
 	if resolved != hostFilesRoot && !strings.HasPrefix(resolved, hostFilesRoot+string(os.PathSeparator)) {
 		return "", fmt.Errorf("caminho inválido")
 	}
-	return joined, nil
+	// Devolve o caminho RESOLVIDO (pós-EvalSymlinks), não o joined cru —
+	// senão a validação acima é só teatro: quem chama reabre `joined` de
+	// novo, e se ENTRE a checagem e o uso um symlink for trocado por baixo
+	// (TOCTOU), o caminho unresolved pode reapontar pra fora de
+	// hostFilesRoot mesmo já tendo "passado" na validação.
+	return resolved, nil
 }
 
 func (s *Service) ListHostDirectory(ctx context.Context, userPath string) ([]HostFileEntry, error) {

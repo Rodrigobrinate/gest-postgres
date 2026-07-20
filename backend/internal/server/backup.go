@@ -59,6 +59,16 @@ func (s *Service) CreateBackup(ctx context.Context, serverID, database, storage 
 	if database == "" {
 		return nil, fmt.Errorf("%w: database é obrigatório", ErrValidation)
 	}
+	// identRegex (não só "não vazio") fecha dois problemas de uma vez: (1)
+	// database vira segmento de filename persistido e usado em
+	// os.Remove/os.Stat depois — sem isso um "../../hostfiles/pwn" escapa
+	// pro bind de host; (2) database vai direto em `pg_dump -d <database>`,
+	// e libpq trata "-d" como conninfo completa se tiver "="/URI — um valor
+	// tipo "dbname=x host=atacante.com" redireciona a conexão (com
+	// PGPASSWORD no ambiente) pro host do atacante.
+	if !identRegex.MatchString(database) {
+		return nil, fmt.Errorf("%w: nome de database inválido", ErrValidation)
+	}
 	if _, err := s.storageByName(ctx, storage); err != nil {
 		return nil, err
 	}

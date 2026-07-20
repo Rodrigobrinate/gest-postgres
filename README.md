@@ -36,6 +36,20 @@ O backend nunca acessa `/var/run/docker.sock` diretamente — só através do
 `docker-socket-proxy`, restrito às operações de container/imagem/rede/volume
 que a plataforma realmente usa.
 
+## Acesso de fora / firewall
+
+`PUBLIC_API_URL`/`ALLOWED_ORIGINS` no `.env` são detectados automaticamente
+pelo `setup.sh` a partir do IP público — se trocar de domínio depois, atualiza
+os dois (`ALLOWED_ORIGINS` é a allowlist de CORS do backend; requisição de uma
+origem fora dela é bloqueada).
+
+Porta publicada de container **passa por cima do `ufw`** por padrão (é como o
+Docker lida com iptables — regra de NAT roda antes do `INPUT` do ufw). O
+`setup.sh` já deixa a cadeia `DOCKER-USER` pronta pra isso funcionar; depois
+que tiver domínio+Traefik na frente e quiser travar o acesso direto por
+IP:porta, `ufw route deny proto tcp to any port 28080` (ou 4173) passa a
+filtrar de verdade.
+
 ## Desenvolvimento sem rebuildar containers
 
 ```bash

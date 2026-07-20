@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -13,6 +14,25 @@ import (
 	"github.com/gest-postgres/backend/internal/docker"
 	"github.com/jackc/pgx/v5"
 )
+
+// isInternalHost resolve o host e recusa qualquer IP loopback/link-local/
+// privado — sem isso, "destino externo" do Traefik consegue publicar um
+// serviço interno (docker-socket-proxy, metadata-db, o próprio backend) sob
+// um domínio público. Mesmo raciocínio de validateWebhookURL em
+// internal/server/notification_channels.go, duplicado aqui (pacotes
+// irmãos, sem um lugar compartilhado óbvio pra isso ainda).
+func isInternalHost(host string) bool {
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return false // não resolveu: deixa o Traefik/DNS lidar na hora do request
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+			return true
+		}
+	}
+	return false
+}
 
 const traefikContainerName = "gestpg-traefik"
 
@@ -270,6 +290,9 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 		if _, err := url.ParseRequestURI(in.RedirectTarget); err != nil {
 			return nil, fmt.Errorf("URL de redirecionamento inválida")
 		}
+		if strings.ContainsAny(in.RedirectTarget, "\"\n\r") {
+			return nil, fmt.Errorf("URL de redirecionamento contém caractere inválido")
+		}
 	case isExternal:
 		if in.TargetContainer != "" || in.TargetPort != 0 {
 			return nil, fmt.Errorf("uma rota é proxy pra container OU destino externo, não os dois")
@@ -277,6 +300,12 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 		parsed, err := url.ParseRequestURI(in.TargetURL)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 			return nil, fmt.Errorf("URL de destino externo inválida — precisa ser http:// ou https://")
+		}
+		if strings.ContainsAny(in.TargetURL, "\"\n\r") {
+			return nil, fmt.Errorf("URL de destino externo contém caractere inválido")
+		}
+		if isInternalHost(parsed.Hostname()) {
+			return nil, fmt.Errorf("URL de destino externo não pode apontar pra endereço interno/privado")
 		}
 	default:
 		if !containerNameRegex.MatchString(in.TargetContainer) {

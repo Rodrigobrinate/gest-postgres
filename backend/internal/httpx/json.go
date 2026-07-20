@@ -5,9 +5,16 @@ package httpx
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 )
+
+// maxJSONBodyBytes limita o corpo de qualquer requisição JSON da API — sem
+// isso um corpo gigante decodifica inteiro em memória antes de qualquer
+// validação de campo rodar (DoS de memória). 10MB cobre com folga o maior
+// payload legítimo hoje (texto de query SQL, YAML de compose, etc).
+const maxJSONBodyBytes = 10 << 20
 
 func WriteJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -29,7 +36,7 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 }
 
 func DecodeJSON(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(io.LimitReader(r.Body, maxJSONBodyBytes))
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }

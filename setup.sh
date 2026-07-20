@@ -105,13 +105,25 @@ else
 	if [[ -n "$PUBLIC_IP" ]]; then
 		sed -i "s#^PUBLIC_API_URL=.*#PUBLIC_API_URL=http://${PUBLIC_IP}:28080#" .env
 		ok "PUBLIC_API_URL detectado automaticamente: http://${PUBLIC_IP}:28080"
+		# ALLOWED_ORIGINS é a allowlist de CORS do backend — sem isso o
+		# navegador acessando pelo IP público não conseguiria falar com a API
+		# (allowlist ficaria só com localhost). Mantém localhost também, pra
+		# continuar funcionando acessando de dentro da própria máquina.
+		sed -i "s#^ALLOWED_ORIGINS=.*#ALLOWED_ORIGINS=http://${PUBLIC_IP}:4173,http://localhost:4173#" .env
+		ok "ALLOWED_ORIGINS detectado automaticamente: http://${PUBLIC_IP}:4173"
 	else
-		warn "não consegui detectar IP público — PUBLIC_API_URL ficou localhost:28080 (edita o .env se for acessar de fora)"
+		warn "não consegui detectar IP público — PUBLIC_API_URL/ALLOWED_ORIGINS ficaram localhost (edita o .env se for acessar de fora)"
 	fi
 
 	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env || true
+	chmod 600 .env
 	ok ".env criado com senha do metadata-db e chave de criptografia geradas"
 fi
+# Idempotente fora do bloco de criação — corrige a permissão mesmo em
+# reinstalação de um .env que já existia de antes dessa checagem (senão fica
+# world-readable num host multiusuário: CREDENTIAL_ENCRYPTION_KEY decifra
+# todo segredo guardado, ADMIN_PASSWORD dá login de admin).
+chmod 600 .env
 
 # ---------- 4.5. pasta do gerenciador de arquivos do host ----------
 # HOST_FILES_ROOT é a raiz (fora do container) que a aba "Arquivos do host"
@@ -218,6 +230,27 @@ else
 	log "habilitando ufw (22/tcp já liberado antes, SSH nunca fica bloqueado)"
 	ufw --force enable
 	ok "ufw ativo"
+fi
+
+# Docker insere as próprias regras de publicação de porta nas cadeias
+# nat/DOCKER do iptables ANTES do INPUT do ufw — então "ufw" sozinho NUNCA
+# filtra porta publicada por container (28080/4173 ficam alcançáveis da
+# internet mesmo com ufw ativo, com ou sem regra pra elas). Isso NÃO
+# desbloqueia nada sozinho — só cria o caminho pra ufw conseguir enxergar
+# esse tráfego, via a cadeia DOCKER-USER (Docker cria automaticamente desde
+# 17.06, mas nunca com nada dentro, então nunca filtra nada por padrão).
+# Idempotente: sempre reseta a cadeia antes de recriar, seguro rodar de novo.
+# Depois disso, `ufw route allow/deny proto tcp to any port 28080` passa a
+# funcionar de verdade (documentado no README) — não habilitado por padrão
+# aqui pra não quebrar o acesso direto via IP:porta que o resto do setup já
+# promete "funciona de cara" sem precisar configurar Traefik/domínio antes.
+if command -v iptables >/dev/null 2>&1; then
+	log "habilitando cadeia DOCKER-USER (deixa ufw conseguir filtrar porta publicada por container)"
+	iptables -N DOCKER-USER 2>/dev/null || true
+	iptables -F DOCKER-USER
+	iptables -A DOCKER-USER -j ufw-user-forward 2>/dev/null || true
+	iptables -A DOCKER-USER -j RETURN
+	ok "DOCKER-USER -> ufw-user-forward configurado (ufw route allow/deny agora filtra porta publicada)"
 fi
 
 # ---------- 7. sobe o stack ----------
