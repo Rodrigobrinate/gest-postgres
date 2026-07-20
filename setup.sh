@@ -87,20 +87,42 @@ else
 fi
 
 # ---------- 4. .env ----------
+ENV_JUST_CREATED=0
 if [[ -f .env ]]; then
-	ok ".env já existe, não mexi"
+	ok ".env já existe, não recriei"
 else
 	log "gerando .env a partir de .env.example"
 	cp .env.example .env
-	sed -i "s/^METADATA_DB_PASSWORD=.*/METADATA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
-	sed -i "s/^CREDENTIAL_ENCRYPTION_KEY=.*/CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)/" .env
-	sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
+	ENV_JUST_CREATED=1
+fi
 
+# Troca qualquer segredo que ainda esteja no valor placeholder de
+# .env.example — roda SEMPRE, não só na criação, pra fechar o caso de
+# alguém ter feito `cp .env.example .env` na mão (ver README, caminho de
+# dev local) e nunca trocado os placeholders, ou de um .env de instalação
+# antiga de antes dessa checagem existir. Nunca mexe num segredo que já foi
+# customizado — só substitui o valor de exemplo conhecido, e sempre com
+# `openssl rand`, nunca uma string previsível.
+if grep -q '^METADATA_DB_PASSWORD=troque-esta-senha$' .env; then
+	sed -i "s/^METADATA_DB_PASSWORD=.*/METADATA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
+	ok "METADATA_DB_PASSWORD gerada (estava no valor de exemplo)"
+fi
+if grep -qE '^CREDENTIAL_ENCRYPTION_KEY=0{64}$' .env; then
+	sed -i "s/^CREDENTIAL_ENCRYPTION_KEY=.*/CREDENTIAL_ENCRYPTION_KEY=$(openssl rand -hex 32)/" .env
+	ok "CREDENTIAL_ENCRYPTION_KEY gerada (estava no valor de exemplo)"
+fi
+if grep -q '^ADMIN_PASSWORD=troque-esta-senha$' .env; then
+	sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
+	ok "ADMIN_PASSWORD gerada (estava no valor de exemplo)"
+fi
+
+if [[ "$ENV_JUST_CREATED" == "1" ]]; then
 	# PUBLIC_API_URL vira NEXT_PUBLIC_API_URL embutido no bundle JS do frontend em
 	# build time — precisa ser o IP/domínio que o NAVEGADOR do usuário alcança, não
 	# "localhost" (que resolveria pro localhost do PC de quem tá acessando, não do
 	# servidor). Detecta o IP público automaticamente; sem internet, fica localhost
-	# mesmo (funciona só pra acessar de dentro da própria máquina).
+	# mesmo (funciona só pra acessar de dentro da própria máquina). Só na criação —
+	# rodar de novo aqui sobrescreveria um domínio/ALLOWED_ORIGINS já customizado.
 	PUBLIC_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
 	if [[ -n "$PUBLIC_IP" ]]; then
 		sed -i "s#^PUBLIC_API_URL=.*#PUBLIC_API_URL=http://${PUBLIC_IP}:28080#" .env
@@ -114,11 +136,9 @@ else
 	else
 		warn "não consegui detectar IP público — PUBLIC_API_URL/ALLOWED_ORIGINS ficaram localhost (edita o .env se for acessar de fora)"
 	fi
-
-	[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env || true
-	chmod 600 .env
 	ok ".env criado com senha do metadata-db e chave de criptografia geradas"
 fi
+[[ "$REAL_USER" != "root" ]] && chown "$REAL_USER:$REAL_USER" .env || true
 # Idempotente fora do bloco de criação — corrige a permissão mesmo em
 # reinstalação de um .env que já existia de antes dessa checagem (senão fica
 # world-readable num host multiusuário: CREDENTIAL_ENCRYPTION_KEY decifra
