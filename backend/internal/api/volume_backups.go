@@ -56,6 +56,24 @@ func (h *VolumeBackupsHandler) Download(w http.ResponseWriter, r *http.Request) 
 	http.ServeContent(w, r, backup.Filename, modTime, f)
 }
 
+type restoreVolumeBackupInput struct {
+	TargetVolumeName string `json:"target_volume_name"`
+	CreateNew        bool   `json:"create_new"`
+}
+
+func (h *VolumeBackupsHandler) Restore(w http.ResponseWriter, r *http.Request) {
+	var in restoreVolumeBackupInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.RestoreVolumeBackup(r.Context(), r.PathValue("backupId"), in.TargetVolumeName, in.CreateNew); err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *VolumeBackupsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.DeleteVolumeBackup(r.Context(), r.PathValue("backupId")); err != nil {
 		writeInfraError(w, err)

@@ -40,19 +40,22 @@ export function FirewallTab() {
   const [port, setPort] = useState(8080);
   const [proto, setProto] = useState<"tcp" | "udp">("tcp");
   const [action, setAction] = useState<"allow" | "deny">("allow");
+  const [from, setFrom] = useState("");
 
   const add = useMutation({
-    mutationFn: () => api.addFirewallRule(port, proto, action),
+    mutationFn: () => api.addFirewallRule(port, proto, action, from.trim()),
     onSuccess: () => {
       toast.success("Regra aplicada");
       setOpen(false);
+      setFrom("");
       invalidate();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao aplicar regra"),
   });
 
   const remove = useMutation({
-    mutationFn: (r: { port: number; proto: "tcp" | "udp" }) => api.removeFirewallRule(r.port, r.proto),
+    mutationFn: (r: { port: number; proto: "tcp" | "udp"; from?: string }) =>
+      api.removeFirewallRule(r.port, r.proto, r.from),
     onSuccess: () => {
       toast.success("Regra removida");
       invalidate();
@@ -122,6 +125,15 @@ export function FirewallTab() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="grid gap-1.5">
+                <Label>Origem (opcional)</Label>
+                <Input
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  placeholder="qualquer lugar — ou 203.0.113.5, ou 203.0.113.0/24"
+                  className="font-mono text-xs"
+                />
+              </div>
               <p className="text-muted-foreground text-xs">
                 Porta 22/tcp (SSH) nunca pode ser alterada por aqui — trava fixa, protege contra perder
                 acesso remoto ao servidor.
@@ -145,7 +157,10 @@ export function FirewallTab() {
             {rules.map((r) => {
               const isSsh = r.port === 22 && r.proto === "tcp";
               return (
-                <li key={`${r.port}-${r.proto}-${r.action}`} className="flex items-center justify-between px-4 py-2 text-sm">
+                <li
+                  key={`${r.port}-${r.proto}-${r.action}-${r.from ?? ""}`}
+                  className="flex items-center justify-between px-4 py-2 text-sm"
+                >
                   <div className="flex items-center gap-2">
                     <span className="font-mono">
                       {r.port}/{r.proto}
@@ -153,6 +168,7 @@ export function FirewallTab() {
                     <Badge className={r.action === "allow" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}>
                       {r.action === "allow" ? "liberado" : "bloqueado"}
                     </Badge>
+                    <span className="text-muted-foreground font-mono text-xs">{r.from || "qualquer lugar"}</span>
                     {isSsh && <Badge variant="outline">SSH — protegido</Badge>}
                   </div>
                   {!isSsh && (
@@ -161,7 +177,7 @@ export function FirewallTab() {
                       variant="ghost"
                       className="text-red-600"
                       disabled={remove.isPending}
-                      onClick={() => remove.mutate({ port: r.port, proto: r.proto })}
+                      onClick={() => remove.mutate({ port: r.port, proto: r.proto, from: r.from })}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>

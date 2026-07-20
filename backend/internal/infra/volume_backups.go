@@ -140,6 +140,52 @@ func (s *Service) DownloadVolumeBackup(ctx context.Context, id string) (*VolumeB
 	return b, backupFilePath(b.VolumeName, b.Filename), nil
 }
 
+// RestoreVolumeBackup extrai um snapshot .tar.gz de volta num volume —
+// createNew=true cria um volume novo do zero (nunca toca em dado
+// existente, mesmo padrão de "criar banco novo" do restore de backup
+// Postgres); createNew=false restaura POR CIMA de um volume já existente,
+// limpando o conteúdo atual antes (irreversível, confirmação é
+// responsabilidade da UI).
+func (s *Service) RestoreVolumeBackup(ctx context.Context, backupID, targetVolumeName string, createNew bool) error {
+	if targetVolumeName == "" {
+		return fmt.Errorf("volume de destino é obrigatório")
+	}
+	b, err := s.getVolumeBackup(ctx, backupID)
+	if err != nil {
+		return err
+	}
+	if b.Status != "completed" {
+		return fmt.Errorf("backup ainda não concluído")
+	}
+
+	if createNew {
+		if err := s.docker.CreateVolume(ctx, targetVolumeName); err != nil {
+			return fmt.Errorf("criando volume de destino: %w", err)
+		}
+	}
+
+	f, err := os.Open(backupFilePath(b.VolumeName, b.Filename))
+	if err != nil {
+		return fmt.Errorf("abrindo arquivo de backup: %w", err)
+	}
+	defer f.Close()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("descompactando backup: %w", err)
+	}
+	defer gz.Close()
+
+	return s.withVolumeHelper(ctx, targetVolumeName, func(helperID string) error {
+		if !createNew {
+			if err := s.docker.ClearDirectoryInContainer(ctx, helperID, volumeMountPoint); err != nil {
+				return fmt.Errorf("limpando volume de destino: %w", err)
+			}
+		}
+		return s.docker.UploadArchiveToContainer(ctx, helperID, volumeMountPoint, gz)
+	})
+}
+
 func (s *Service) DeleteVolumeBackup(ctx context.Context, id string) error {
 	b, err := s.getVolumeBackup(ctx, id)
 	if err != nil {

@@ -37,17 +37,17 @@ type ContainerStat struct {
 // docker.HostDiskUsage) — os outros (CPU/memória/rede/I/O) continuam sendo
 // soma dos containers, não tem como pegar "de fora do Docker" sem isso.
 type PlatformStats struct {
-	Containers            []ContainerStat `json:"containers"`
-	TotalCPUPercent       float64         `json:"total_cpu_percent"`
-	TotalMemoryUsedMB     float64         `json:"total_memory_used_mb"`
-	TotalMemoryLimitMB    float64         `json:"total_memory_limit_mb"`
-	DiskTotalBytes        int64           `json:"disk_total_bytes"`
-	DiskUsedBytes         int64           `json:"disk_used_bytes"`
-	DiskFreeBytes         int64           `json:"disk_free_bytes"`
-	DiskAvailable         bool            `json:"disk_available"` // false se o mount /hostfs não existe
-	DockerDiskUsedBytes   int64           `json:"docker_disk_used_bytes"` // subconjunto: só imagens+containers+volumes
-	NetworkRxBytesTotal   int64           `json:"network_rx_bytes_total"`
-	NetworkTxBytesTotal   int64           `json:"network_tx_bytes_total"`
+	Containers          []ContainerStat `json:"containers"`
+	TotalCPUPercent     float64         `json:"total_cpu_percent"`
+	TotalMemoryUsedMB   float64         `json:"total_memory_used_mb"`
+	TotalMemoryLimitMB  float64         `json:"total_memory_limit_mb"`
+	DiskTotalBytes      int64           `json:"disk_total_bytes"`
+	DiskUsedBytes       int64           `json:"disk_used_bytes"`
+	DiskFreeBytes       int64           `json:"disk_free_bytes"`
+	DiskAvailable       bool            `json:"disk_available"`         // false se o mount /hostfs não existe
+	DockerDiskUsedBytes int64           `json:"docker_disk_used_bytes"` // subconjunto: só imagens+containers+volumes
+	NetworkRxBytesTotal int64           `json:"network_rx_bytes_total"`
+	NetworkTxBytesTotal int64           `json:"network_tx_bytes_total"`
 }
 
 func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) {

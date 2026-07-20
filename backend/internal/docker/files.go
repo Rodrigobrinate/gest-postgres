@@ -179,6 +179,35 @@ func (c *Client) UploadFileToContainer(ctx context.Context, containerID, destDir
 	return nil
 }
 
+// UploadArchiveToContainer extrai um tar cru (já descompactado por quem
+// chama, se preciso) dentro de destDir no container — é o reverso de
+// DownloadFromContainer, usado pra restaurar snapshot de volume (ver
+// internal/infra/volume_backups.go RestoreVolumeBackup).
+func (c *Client) UploadArchiveToContainer(ctx context.Context, containerID, destDir string, tarStream io.Reader) error {
+	if err := c.cli.CopyToContainer(ctx, containerID, destDir, tarStream, types.CopyToContainerOptions{}); err != nil {
+		return fmt.Errorf("restaurando arquivos no container %s: %w", containerID, err)
+	}
+	return nil
+}
+
+// ClearDirectoryInContainer apaga só o CONTEÚDO de um diretório (não o
+// diretório em si) — via exec síncrono, mesmo raciocínio de
+// DeleteInContainer. Usado antes de restaurar backup por cima de um volume
+// já existente, pra não deixar arquivo velho que não tava no snapshot.
+func (c *Client) ClearDirectoryInContainer(ctx context.Context, containerID, dirPath string) error {
+	// find -mindepth 1 -delete apaga tudo dentro (incluindo dotfile), sem
+	// depender de expansão de glob do shell (que se comporta diferente
+	// entre sh/bash pra dotfile).
+	exitCode, output, err := c.ExecRun(ctx, containerID, []string{"find", dirPath, "-mindepth", "1", "-delete"})
+	if err != nil {
+		return fmt.Errorf("limpando %s no container %s: %w", dirPath, containerID, err)
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("limpando %s no container %s: %s", dirPath, containerID, strings.TrimSpace(output))
+	}
+	return nil
+}
+
 // DeleteInContainer roda um `rm -rf` via exec síncrono — a API de archive
 // não tem operação de exclusão. Path já deve vir validado por quem chama
 // (nunca vazio, nunca "/"). Depende da categoria EXEC do docker-socket-proxy

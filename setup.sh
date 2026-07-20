@@ -196,7 +196,12 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now gestpg-firewall-agent
+systemctl enable gestpg-firewall-agent
+# restart (não só enable --now) — o binário acima é sempre reinstalado do
+# zero, mas se o serviço já tava rodando "enable --now" não recarrega o
+# processo com o binário novo, ele só garante habilitado+rodando (fica
+# preso na versão antiga em memória até um restart de verdade).
+systemctl restart gestpg-firewall-agent
 ok "firewall-agent ativo (/run/gestpg-firewall.sock)"
 
 # ufw: instala + libera 22/tcp ANTES de habilitar — ORDEM CRÍTICA, nunca

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -31,6 +32,7 @@ type FirewallRule struct {
 	Port   int    `json:"port"`
 	Proto  string `json:"proto"`
 	Action string `json:"action"`
+	From   string `json:"from,omitempty"`
 }
 
 func firewallRequest(ctx context.Context, method, path string, body any, out any) error {
@@ -85,12 +87,17 @@ type AddFirewallRuleInput struct {
 	Port   int    `json:"port"`
 	Proto  string `json:"proto"`
 	Action string `json:"action"`
+	From   string `json:"from,omitempty"`
 }
 
 func (s *Service) AddFirewallRule(ctx context.Context, in AddFirewallRuleInput) error {
 	return firewallRequest(ctx, http.MethodPost, "/rules", in, nil)
 }
 
-func (s *Service) RemoveFirewallRule(ctx context.Context, port int, proto string) error {
-	return firewallRequest(ctx, http.MethodDelete, fmt.Sprintf("/rules/%d/%s", port, proto), nil, nil)
+func (s *Service) RemoveFirewallRule(ctx context.Context, port int, proto, from string) error {
+	path := fmt.Sprintf("/rules/%d/%s", port, proto)
+	if from != "" {
+		path += "?from=" + url.QueryEscape(from)
+	}
+	return firewallRequest(ctx, http.MethodDelete, path, nil, nil)
 }

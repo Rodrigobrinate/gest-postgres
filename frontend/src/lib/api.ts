@@ -370,7 +370,8 @@ export interface AlertRule {
   server_id: string;
   metric: AlertMetric;
   threshold: number;
-  webhook_url: string;
+  webhook_url?: string;
+  channel_id?: string;
   enabled: boolean;
   last_triggered_at: string | null;
   last_value: number | null;
@@ -380,7 +381,27 @@ export interface AlertRule {
 export interface CreateAlertRuleInput {
   metric: AlertMetric;
   threshold: number;
-  webhook_url: string;
+  webhook_url?: string;
+  channel_id?: string;
+}
+
+export type NotificationChannelKind = "telegram" | "webhook";
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  kind: NotificationChannelKind;
+  webhook_url?: string;
+  telegram_chat_id?: string;
+  created_at: string;
+}
+
+export interface CreateNotificationChannelInput {
+  name: string;
+  kind: NotificationChannelKind;
+  webhook_url?: string;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
 }
 
 export interface HbaRule {
@@ -605,6 +626,7 @@ export interface ProxyRoute {
   domain: string;
   target_container?: string;
   target_port?: number;
+  target_url?: string;
   tls: boolean;
   path_prefix: string;
   strip_prefix: boolean;
@@ -618,6 +640,7 @@ export interface CreateProxyRouteInput {
   domain: string;
   target_container?: string;
   target_port?: number;
+  target_url?: string;
   tls: boolean;
   path_prefix?: string;
   strip_prefix?: boolean;
@@ -630,6 +653,7 @@ export interface FirewallRule {
   port: number;
   proto: "tcp" | "udp";
   action: "allow" | "deny";
+  from?: string;
 }
 
 export type GitCredentialKind = "ssh_key" | "pat";
@@ -1262,6 +1286,20 @@ export const api = {
       method: "POST",
     }),
 
+  listNotificationChannels: () => request<NotificationChannel[]>(`/api/v1/notification-channels`),
+
+  createNotificationChannel: (input: CreateNotificationChannelInput) =>
+    request<NotificationChannel>(`/api/v1/notification-channels`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+
+  deleteNotificationChannel: (id: string) =>
+    request<void>(`/api/v1/notification-channels/${id}`, { method: "DELETE" }),
+
+  testNotificationChannel: (id: string) =>
+    request<{ status: string }>(`/api/v1/notification-channels/${id}/test`, { method: "POST" }),
+
   listAlertRules: (id: string) => request<AlertRule[]>(`/api/v1/servers/${id}/alert-rules`),
 
   createAlertRule: (id: string, input: CreateAlertRuleInput) =>
@@ -1350,6 +1388,8 @@ export const api = {
   gdriveAuthUrl: () => request<{ url: string }>(`/api/v1/gdrive/auth-url`),
 
   gdriveDisconnect: () => request<{ status: string }>(`/api/v1/gdrive/disconnect`, { method: "POST" }),
+
+  systemPrune: () => request<{ log: string }>(`/api/v1/infra/system-prune`, { method: "POST" }),
 
   listInfraContainers: () => request<InfraContainer[]>(`/api/v1/infra/containers`),
 
@@ -1584,6 +1624,12 @@ export const api = {
   deleteVolumeBackup: (name: string, backupId: string) =>
     request<void>(`/api/v1/infra/volumes/${name}/backups/${backupId}`, { method: "DELETE" }),
 
+  restoreVolumeBackup: (name: string, backupId: string, targetVolumeName: string, createNew: boolean) =>
+    request<{ status: string }>(`/api/v1/infra/volumes/${name}/backups/${backupId}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ target_volume_name: targetVolumeName, create_new: createNew }),
+    }),
+
   volumeBackupDownloadUrl: (name: string, backupId: string) =>
     `${API_URL}/api/v1/infra/volumes/${name}/backups/${backupId}/download`,
 
@@ -1650,14 +1696,17 @@ export const api = {
 
   listFirewallRules: () => request<FirewallRule[]>(`/api/v1/infra/firewall-rules`),
 
-  addFirewallRule: (port: number, proto: "tcp" | "udp", action: "allow" | "deny") =>
+  addFirewallRule: (port: number, proto: "tcp" | "udp", action: "allow" | "deny", from?: string) =>
     request<{ status: string }>(`/api/v1/infra/firewall-rules`, {
       method: "POST",
-      body: JSON.stringify({ port, proto, action }),
+      body: JSON.stringify({ port, proto, action, from: from || undefined }),
     }),
 
-  removeFirewallRule: (port: number, proto: "tcp" | "udp") =>
-    request<void>(`/api/v1/infra/firewall-rules/${port}/${proto}`, { method: "DELETE" }),
+  removeFirewallRule: (port: number, proto: "tcp" | "udp", from?: string) =>
+    request<void>(
+      `/api/v1/infra/firewall-rules/${port}/${proto}${from ? `?from=${encodeURIComponent(from)}` : ""}`,
+      { method: "DELETE" }
+    ),
 
   listGitDeployments: () => request<GitDeployment[]>(`/api/v1/infra/git-deployments`),
 

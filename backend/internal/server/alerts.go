@@ -1,25 +1,23 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"time"
 )
 
 type AlertRule struct {
-	ID               string     `json:"id"`
-	ServerID         string     `json:"server_id"`
-	Metric           string     `json:"metric"`
-	Threshold        float64    `json:"threshold"`
-	WebhookURL       string     `json:"webhook_url"`
-	Enabled          bool       `json:"enabled"`
-	LastTriggeredAt  *time.Time `json:"last_triggered_at"`
-	LastValue        *float64   `json:"last_value"`
-	CreatedAt        time.Time  `json:"created_at"`
+	ID              string     `json:"id"`
+	ServerID        string     `json:"server_id"`
+	Metric          string     `json:"metric"`
+	Threshold       float64    `json:"threshold"`
+	WebhookURL      string     `json:"webhook_url,omitempty"`
+	ChannelID       string     `json:"channel_id,omitempty"`
+	Enabled         bool       `json:"enabled"`
+	LastTriggeredAt *time.Time `json:"last_triggered_at"`
+	LastValue       *float64   `json:"last_value"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 var allowedAlertMetrics = map[string]string{
@@ -32,15 +30,16 @@ var allowedAlertMetrics = map[string]string{
 type CreateAlertRuleInput struct {
 	Metric     string  `json:"metric"`
 	Threshold  float64 `json:"threshold"`
-	WebhookURL string  `json:"webhook_url"`
+	WebhookURL string  `json:"webhook_url,omitempty"`
+	ChannelID  string  `json:"channel_id,omitempty"`
 }
 
 func (s *Service) CreateAlertRule(ctx context.Context, id string, in CreateAlertRuleInput) (*AlertRule, error) {
 	if _, ok := allowedAlertMetrics[in.Metric]; !ok {
 		return nil, fmt.Errorf("%w: métrica inválida", ErrValidation)
 	}
-	if in.WebhookURL == "" {
-		return nil, fmt.Errorf("%w: webhook_url é obrigatório", ErrValidation)
+	if in.WebhookURL == "" && in.ChannelID == "" {
+		return nil, fmt.Errorf("%w: escolha um canal salvo ou informe uma webhook_url", ErrValidation)
 	}
 	if in.Threshold <= 0 {
 		return nil, fmt.Errorf("%w: threshold deve ser positivo", ErrValidation)
@@ -49,13 +48,18 @@ func (s *Service) CreateAlertRule(ctx context.Context, id string, in CreateAlert
 		return nil, err
 	}
 
+	var channelID *string
+	if in.ChannelID != "" {
+		channelID = &in.ChannelID
+	}
+
 	var a AlertRule
 	err := s.repo.pool.QueryRow(ctx, `
-		INSERT INTO alert_rules (server_id, metric, threshold, webhook_url)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, server_id, metric, threshold, webhook_url, enabled, last_triggered_at, last_value, created_at
-	`, id, in.Metric, in.Threshold, in.WebhookURL).Scan(
-		&a.ID, &a.ServerID, &a.Metric, &a.Threshold, &a.WebhookURL, &a.Enabled, &a.LastTriggeredAt, &a.LastValue, &a.CreatedAt,
+		INSERT INTO alert_rules (server_id, metric, threshold, webhook_url, channel_id)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, server_id, metric, threshold, webhook_url, coalesce(channel_id::text, ''), enabled, last_triggered_at, last_value, created_at
+	`, id, in.Metric, in.Threshold, in.WebhookURL, channelID).Scan(
+		&a.ID, &a.ServerID, &a.Metric, &a.Threshold, &a.WebhookURL, &a.ChannelID, &a.Enabled, &a.LastTriggeredAt, &a.LastValue, &a.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("criando regra de alerta: %w", err)
@@ -65,7 +69,7 @@ func (s *Service) CreateAlertRule(ctx context.Context, id string, in CreateAlert
 
 func (s *Service) ListAlertRules(ctx context.Context, id string) ([]AlertRule, error) {
 	rows, err := s.repo.pool.Query(ctx, `
-		SELECT id, server_id, metric, threshold, webhook_url, enabled, last_triggered_at, last_value, created_at
+		SELECT id, server_id, metric, threshold, webhook_url, coalesce(channel_id::text, ''), enabled, last_triggered_at, last_value, created_at
 		FROM alert_rules WHERE server_id = $1 ORDER BY created_at DESC
 	`, id)
 	if err != nil {
@@ -76,7 +80,7 @@ func (s *Service) ListAlertRules(ctx context.Context, id string) ([]AlertRule, e
 	out := make([]AlertRule, 0)
 	for rows.Next() {
 		var a AlertRule
-		if err := rows.Scan(&a.ID, &a.ServerID, &a.Metric, &a.Threshold, &a.WebhookURL, &a.Enabled, &a.LastTriggeredAt, &a.LastValue, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.ServerID, &a.Metric, &a.Threshold, &a.WebhookURL, &a.ChannelID, &a.Enabled, &a.LastTriggeredAt, &a.LastValue, &a.CreatedAt); err != nil {
 			return nil, fmt.Errorf("lendo regra de alerta: %w", err)
 		}
 		out = append(out, a)
@@ -198,7 +202,8 @@ func (s *Service) RunAlertSweep(ctx context.Context, interval time.Duration) {
 
 func (s *Service) sweepAlertRulesOnce(ctx context.Context) {
 	rows, err := s.repo.pool.Query(ctx, `
-		SELECT ar.id, ar.server_id, ar.metric, ar.threshold, ar.webhook_url, ar.last_triggered_at, ar.last_deadlock_count, s.name
+		SELECT ar.id, ar.server_id, ar.metric, ar.threshold, ar.webhook_url, coalesce(ar.channel_id::text, ''),
+		       ar.last_triggered_at, ar.last_deadlock_count, s.name
 		FROM alert_rules ar
 		JOIN servers s ON s.id = ar.server_id
 		WHERE ar.enabled = true AND s.status = 'running'
@@ -209,15 +214,15 @@ func (s *Service) sweepAlertRulesOnce(ctx context.Context) {
 	}
 
 	type ruleRow struct {
-		id, serverID, metric, webhookURL, serverName string
-		threshold                                    float64
-		lastTriggeredAt                               *time.Time
-		lastDeadlockCount                             int64
+		id, serverID, metric, webhookURL, channelID, serverName string
+		threshold                                               float64
+		lastTriggeredAt                                         *time.Time
+		lastDeadlockCount                                       int64
 	}
 	var rules []ruleRow
 	for rows.Next() {
 		var rr ruleRow
-		if err := rows.Scan(&rr.id, &rr.serverID, &rr.metric, &rr.threshold, &rr.webhookURL, &rr.lastTriggeredAt, &rr.lastDeadlockCount, &rr.serverName); err != nil {
+		if err := rows.Scan(&rr.id, &rr.serverID, &rr.metric, &rr.threshold, &rr.webhookURL, &rr.channelID, &rr.lastTriggeredAt, &rr.lastDeadlockCount, &rr.serverName); err != nil {
 			continue
 		}
 		rules = append(rules, rr)
@@ -252,7 +257,7 @@ func (s *Service) sweepAlertRulesOnce(ctx context.Context) {
 			continue
 		}
 
-		s.fireWebhook(ctx, rr.webhookURL, webhookPayload{
+		payload := webhookPayload{
 			ServerID:    rr.serverID,
 			ServerName:  rr.serverName,
 			Metric:      rr.metric,
@@ -260,36 +265,22 @@ func (s *Service) sweepAlertRulesOnce(ctx context.Context) {
 			Value:       value,
 			Threshold:   rr.threshold,
 			TriggeredAt: time.Now(),
-		})
+		}
+
+		var sendErr error
+		if rr.channelID != "" {
+			channel, err := s.getNotificationChannel(ctx, rr.channelID)
+			if err != nil {
+				slog.Warn("alertas: canal de notificação não encontrado", "rule_id", rr.id, "channel_id", rr.channelID, "error", err)
+			} else {
+				sendErr = s.sendNotification(ctx, channel, payload)
+			}
+		} else if rr.webhookURL != "" {
+			sendErr = s.sendNotification(ctx, &NotificationChannel{Kind: ChannelWebhook, WebhookURL: rr.webhookURL}, payload)
+		}
+		if sendErr != nil {
+			slog.Warn("alertas: falha enviando notificação", "rule_id", rr.id, "error", sendErr)
+		}
 		s.repo.pool.Exec(ctx, `UPDATE alert_rules SET last_triggered_at = now() WHERE id = $1`, rr.id)
-	}
-}
-
-func (s *Service) fireWebhook(ctx context.Context, url string, payload webhookPayload) {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		slog.Error("alertas: falha serializando payload", "error", err)
-		return
-	}
-
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		slog.Error("alertas: falha montando request do webhook", "error", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		slog.Warn("alertas: falha enviando webhook", "url", url, "error", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 300 {
-		slog.Warn("alertas: webhook retornou erro", "url", url, "status", resp.StatusCode)
 	}
 }

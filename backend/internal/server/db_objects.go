@@ -71,11 +71,11 @@ func (s *Service) DropView(ctx context.Context, id, database, schema, name strin
 // ---------- Materialized Views ----------
 
 type MaterializedViewInfo struct {
-	Schema      string `json:"schema"`
-	Name        string `json:"name"`
-	Populated   bool   `json:"populated"`
-	SizeBytes   int64  `json:"size_bytes"`
-	Definition  string `json:"definition"`
+	Schema     string `json:"schema"`
+	Name       string `json:"name"`
+	Populated  bool   `json:"populated"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Definition string `json:"definition"`
 }
 
 func (s *Service) ListMaterializedViews(ctx context.Context, id, database string) ([]MaterializedViewInfo, error) {

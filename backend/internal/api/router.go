@@ -96,6 +96,12 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("POST /api/v1/servers/{id}/backup-policies/{policyId}/enabled", detail.SetBackupPolicyEnabled)
 	mux.HandleFunc("POST /api/v1/servers/{id}/backup-policies/{policyId}/run", detail.RunBackupPolicy)
 
+	notificationChannels := NewNotificationChannelsHandler(serverService)
+	mux.HandleFunc("GET /api/v1/notification-channels", notificationChannels.List)
+	mux.HandleFunc("POST /api/v1/notification-channels", notificationChannels.Create)
+	mux.HandleFunc("DELETE /api/v1/notification-channels/{channelId}", notificationChannels.Delete)
+	mux.HandleFunc("POST /api/v1/notification-channels/{channelId}/test", notificationChannels.Test)
+
 	gdrive := NewGDriveHandler(serverService)
 	mux.HandleFunc("GET /api/v1/gdrive/status", gdrive.Status)
 	mux.HandleFunc("POST /api/v1/gdrive/config", gdrive.SetConfig)
@@ -138,6 +144,7 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/networks/{networkName}", infraHandler.DisconnectContainerNetwork)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/volumes", infraHandler.AttachContainerVolume)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/resources", infraHandler.UpdateContainerResources)
+	mux.HandleFunc("POST /api/v1/infra/system-prune", infraHandler.SystemPrune)
 	mux.HandleFunc("GET /api/v1/infra/networks", infraHandler.ListNetworks)
 	mux.HandleFunc("POST /api/v1/infra/networks", infraHandler.CreateNetwork)
 	mux.HandleFunc("DELETE /api/v1/infra/networks/{networkId}", infraHandler.RemoveNetwork)
@@ -149,6 +156,7 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/backups", volumeBackupsHandler.List)
 	mux.HandleFunc("POST /api/v1/infra/volumes/{volumeName}/backups", volumeBackupsHandler.Create)
 	mux.HandleFunc("GET /api/v1/infra/volumes/{volumeName}/backups/{backupId}/download", volumeBackupsHandler.Download)
+	mux.HandleFunc("POST /api/v1/infra/volumes/{volumeName}/backups/{backupId}/restore", volumeBackupsHandler.Restore)
 	mux.HandleFunc("DELETE /api/v1/infra/volumes/{volumeName}/backups/{backupId}", volumeBackupsHandler.Delete)
 	mux.HandleFunc("GET /api/v1/infra/compose", infraHandler.ListComposeProjects)
 	mux.HandleFunc("POST /api/v1/infra/compose", infraHandler.DeployCompose)

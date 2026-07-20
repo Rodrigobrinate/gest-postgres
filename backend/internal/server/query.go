@@ -19,10 +19,10 @@ type QueryResult struct {
 }
 
 type TableInfo struct {
-	Schema         string `json:"schema"`
-	Name           string `json:"name"`
-	SizeBytes      int64  `json:"size_bytes"`
-	EstimatedRows  int64  `json:"estimated_rows"`
+	Schema        string `json:"schema"`
+	Name          string `json:"name"`
+	SizeBytes     int64  `json:"size_bytes"`
+	EstimatedRows int64  `json:"estimated_rows"`
 }
 
 // RunQuery executa SQL arbitrário no banco indicado — é o editor SQL, então

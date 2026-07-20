@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError, type AlertMetric } from "@/lib/api";
+import { NotificationChannelsManager } from "@/components/servers/notification-channels-manager";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,14 +46,27 @@ export function AlertRules({ serverId }: { serverId: string }) {
   const [open, setOpen] = useState(false);
   const [metric, setMetric] = useState<AlertMetric>("connections_pct");
   const [threshold, setThreshold] = useState(80);
+  const [channelId, setChannelId] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
 
+  const { data: channels } = useQuery({
+    queryKey: ["notification-channels"],
+    queryFn: () => api.listNotificationChannels(),
+  });
+
   const create = useMutation({
-    mutationFn: () => api.createAlertRule(serverId, { metric, threshold, webhook_url: webhookUrl }),
+    mutationFn: () =>
+      api.createAlertRule(serverId, {
+        metric,
+        threshold,
+        channel_id: channelId || undefined,
+        webhook_url: channelId ? undefined : webhookUrl,
+      }),
     onSuccess: () => {
       toast.success("Alerta criado");
       setOpen(false);
       setWebhookUrl("");
+      setChannelId("");
       invalidate();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar alerta"),
@@ -120,19 +134,42 @@ export function AlertRules({ serverId }: { serverId: string }) {
                   <Input type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>Webhook URL</Label>
-                  <Input
-                    placeholder="https://hooks.slack.com/... ou qualquer endpoint que aceite POST JSON"
-                    value={webhookUrl}
-                    onChange={(e) => setWebhookUrl(e.target.value)}
-                  />
+                  <div className="flex items-center justify-between">
+                    <Label>Canal de notificação</Label>
+                    <NotificationChannelsManager />
+                  </div>
+                  <Select value={channelId} onValueChange={(v) => setChannelId(v ?? "")}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Nenhum — usar webhook direto abaixo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(channels ?? []).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({c.kind === "telegram" ? "Telegram" : "Webhook"})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+                {!channelId && (
+                  <div className="grid gap-1.5">
+                    <Label>Webhook URL (sem canal salvo)</Label>
+                    <Input
+                      placeholder="https://hooks.slack.com/... ou qualquer endpoint que aceite POST JSON"
+                      value={webhookUrl}
+                      onChange={(e) => setWebhookUrl(e.target.value)}
+                    />
+                  </div>
+                )}
                 <p className="text-muted-foreground text-xs">
                   Checado a cada minuto, com cooldown de 15min entre disparos da mesma regra.
                 </p>
               </div>
               <DialogFooter>
-                <Button disabled={create.isPending || !webhookUrl.trim()} onClick={() => create.mutate()}>
+                <Button
+                  disabled={create.isPending || (!channelId && !webhookUrl.trim())}
+                  onClick={() => create.mutate()}
+                >
                   {create.isPending ? "Criando..." : "Criar"}
                 </Button>
               </DialogFooter>
@@ -159,7 +196,11 @@ export function AlertRules({ serverId }: { serverId: string }) {
                       </Badge>
                       {!r.enabled && <Badge variant="outline">pausado</Badge>}
                     </div>
-                    <p className="text-muted-foreground truncate text-xs">{r.webhook_url}</p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {r.channel_id
+                        ? `canal: ${channels?.find((c) => c.id === r.channel_id)?.name ?? r.channel_id}`
+                        : r.webhook_url}
+                    </p>
                     <p className="text-muted-foreground text-xs">
                       {r.last_value != null && `último valor: ${r.last_value.toFixed(1)}${meta?.unit ?? ""} · `}
                       {r.last_triggered_at

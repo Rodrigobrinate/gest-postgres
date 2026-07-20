@@ -7,6 +7,7 @@ import { PlatformStatsCards } from "@/components/servers/platform-stats-cards";
 import { ServerTable } from "@/components/servers/server-table";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { UsersManager } from "@/components/auth/users-manager";
+import { NotificationChannelsManager } from "@/components/servers/notification-channels-manager";
 import { Boxes, Database } from "lucide-react";
 
 export default function Home() {
@@ -32,6 +33,7 @@ export default function Home() {
           <DiscoverServersDialog />
           <CreateServerDialog />
           <UsersManager />
+          <NotificationChannelsManager />
           <LogoutButton />
         </div>
       </header>

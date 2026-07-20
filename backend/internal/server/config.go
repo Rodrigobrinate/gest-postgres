@@ -29,12 +29,12 @@ func (s *Service) applySettings(ctx context.Context, record *Server, database st
 	defer conn.Close(ctx)
 
 	settings := map[string]string{
-		"max_connections":             strconv.Itoa(cfg.MaxConnections),
-		"shared_buffers":              fmt.Sprintf("%dMB", cfg.SharedBuffersMB),
-		"work_mem":                    fmt.Sprintf("%dMB", cfg.WorkMemMB),
-		"maintenance_work_mem":        fmt.Sprintf("%dMB", cfg.MaintenanceWorkMemMB),
-		"effective_cache_size":        fmt.Sprintf("%dMB", cfg.EffectiveCacheSizeMB),
-		"log_min_duration_statement":  strconv.Itoa(cfg.LogMinDurationStatementMs),
+		"max_connections":            strconv.Itoa(cfg.MaxConnections),
+		"shared_buffers":             fmt.Sprintf("%dMB", cfg.SharedBuffersMB),
+		"work_mem":                   fmt.Sprintf("%dMB", cfg.WorkMemMB),
+		"maintenance_work_mem":       fmt.Sprintf("%dMB", cfg.MaintenanceWorkMemMB),
+		"effective_cache_size":       fmt.Sprintf("%dMB", cfg.EffectiveCacheSizeMB),
+		"log_min_duration_statement": strconv.Itoa(cfg.LogMinDurationStatementMs),
 	}
 
 	restartRequired := false

@@ -93,15 +93,15 @@ func (c *Client) CreateContainer(ctx context.Context, in CreateContainerInput) (
 // env vars no boot, então não precisa da tática de escrever arquivo via
 // archive API que o pg_hba.conf usa.
 type CreatePgBouncerInput struct {
-	Name        string
-	TargetHost  string // nome do container Postgres na rede gestpg-managed
-	Username    string
-	Password    string
+	Name         string
+	TargetHost   string // nome do container Postgres na rede gestpg-managed
+	Username     string
+	Password     string
 	DatabaseName string
-	PoolMode    string // session | transaction | statement
-	HostPort    int
-	NetworkName string
-	ServerID    string
+	PoolMode     string // session | transaction | statement
+	HostPort     int
+	NetworkName  string
+	ServerID     string
 }
 
 func (c *Client) CreatePgBouncerContainer(ctx context.Context, in CreatePgBouncerInput) (string, error) {

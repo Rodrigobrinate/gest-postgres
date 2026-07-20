@@ -12,6 +12,7 @@ import { TraefikTab } from "@/components/infra/traefik-tab";
 import { FirewallTab } from "@/components/infra/firewall-tab";
 import { HostFilesTab } from "@/components/infra/host-files-tab";
 import { GitDeploymentsTab } from "@/components/infra/git-deployments-tab";
+import { SystemPruneButton } from "@/components/infra/system-prune-button";
 
 export default function InfraPage() {
   return (
@@ -26,16 +27,19 @@ export default function InfraPage() {
         </Link>
       </div>
 
-      <header className="flex items-center gap-3">
-        <div className="bg-primary text-primary-foreground flex size-10 items-center justify-center rounded-lg">
-          <Boxes className="size-5" />
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="bg-primary text-primary-foreground flex size-10 items-center justify-center rounded-lg">
+            <Boxes className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Docker</h1>
+            <p className="text-muted-foreground text-sm">
+              Containers, redes e volumes do host — não só os servidores Postgres gerenciados.
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Docker</h1>
-          <p className="text-muted-foreground text-sm">
-            Containers, redes e volumes do host — não só os servidores Postgres gerenciados.
-          </p>
-        </div>
+        <SystemPruneButton />
       </header>
 
       <Tabs defaultValue="containers">

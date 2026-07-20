@@ -42,13 +42,13 @@ func (s *Service) DropIndex(ctx context.Context, id, database, schema, name stri
 // ---------- Sugestão de índices ----------
 
 type IndexSuggestion struct {
-	Schema      string `json:"schema"`
-	Table       string `json:"table"`
-	SeqScan     int64  `json:"seq_scan"`
-	SeqTupRead  int64  `json:"seq_tup_read"`
-	IdxScan     int64  `json:"idx_scan"`
-	LiveRows    int64  `json:"live_rows"`
-	Detail      string `json:"detail"`
+	Schema     string `json:"schema"`
+	Table      string `json:"table"`
+	SeqScan    int64  `json:"seq_scan"`
+	SeqTupRead int64  `json:"seq_tup_read"`
+	IdxScan    int64  `json:"idx_scan"`
+	LiveRows   int64  `json:"live_rows"`
+	Detail     string `json:"detail"`
 }
 
 // SuggestMissingIndexes é uma heurística barata: tabelas com muito mais leitura

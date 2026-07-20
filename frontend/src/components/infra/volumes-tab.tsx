@@ -17,7 +17,10 @@ import {
 } from "@/components/ui/dialog";
 import { FileBrowser, type FileBrowserAdapter } from "@/components/infra/file-browser";
 import { Badge } from "@/components/ui/badge";
-import { Archive, Download, FolderOpen, HardDrive, Plus, Trash2 } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Archive, Download, FolderOpen, HardDrive, History, Plus, Trash2 } from "lucide-react";
+import type { VolumeBackup } from "@/lib/api";
 
 function formatBytes(bytes?: number) {
   if (!bytes) return "—";
@@ -173,6 +176,8 @@ function VolumeBackups({ volumeName }: { volumeName: string }) {
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao remover backup"),
   });
 
+  const [restoring, setRestoring] = useState<VolumeBackup | null>(null);
+
   return (
     <div className="grid gap-3">
       <Button size="sm" className="justify-self-start" disabled={create.isPending} onClick={() => create.mutate()}>
@@ -206,14 +211,19 @@ function VolumeBackups({ volumeName }: { volumeName: string }) {
               </div>
               <div className="flex items-center gap-1">
                 {b.status === "completed" && (
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    title="Baixar"
-                    render={<a href={api.volumeBackupDownloadUrl(volumeName, b.id)} />}
-                  >
-                    <Download className="size-3.5" />
-                  </Button>
+                  <>
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      title="Baixar"
+                      render={<a href={api.volumeBackupDownloadUrl(volumeName, b.id)} />}
+                    >
+                      <Download className="size-3.5" />
+                    </Button>
+                    <Button size="icon-xs" variant="ghost" title="Restaurar" onClick={() => setRestoring(b)}>
+                      <History className="size-3.5" />
+                    </Button>
+                  </>
                 )}
                 <Button
                   size="icon-xs"
@@ -229,7 +239,115 @@ function VolumeBackups({ volumeName }: { volumeName: string }) {
           ))}
         </ul>
       )}
+
+      {restoring && (
+        <RestoreVolumeBackupDialog
+          volumeName={volumeName}
+          backup={restoring}
+          onClose={() => setRestoring(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function RestoreVolumeBackupDialog({
+  volumeName,
+  backup,
+  onClose,
+}: {
+  volumeName: string;
+  backup: VolumeBackup;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"new" | "existing">("new");
+  const [newVolumeName, setNewVolumeName] = useState(`${volumeName}_restored`);
+  const [targetVolume, setTargetVolume] = useState("");
+
+  const { data: volumes } = useQuery({
+    queryKey: ["infra-volumes"],
+    queryFn: () => api.listInfraVolumes(),
+  });
+
+  const queryClient = useQueryClient();
+
+  const restore = useMutation({
+    mutationFn: () =>
+      api.restoreVolumeBackup(
+        volumeName,
+        backup.id,
+        mode === "new" ? newVolumeName : targetVolume,
+        mode === "new"
+      ),
+    onSuccess: () => {
+      toast.success("Volume restaurado");
+      queryClient.invalidateQueries({ queryKey: ["infra-volumes"] });
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao restaurar"),
+  });
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-1.5">
+            <History className="size-4" />
+            Restaurar &ldquo;{backup.filename}&rdquo;
+          </DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <div className="grid gap-1.5">
+            <Label>Destino</Label>
+            <Select value={mode} onValueChange={(v) => v && setMode(v as typeof mode)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">Criar um volume novo</SelectItem>
+                <SelectItem value="existing">Sobrescrever um volume existente</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {mode === "new" ? (
+            <div className="grid gap-1.5">
+              <Label>Nome do volume novo</Label>
+              <Input value={newVolumeName} onChange={(e) => setNewVolumeName(e.target.value)} />
+            </div>
+          ) : (
+            <div className="grid gap-1.5">
+              <Label>Volume a sobrescrever</Label>
+              <Select value={targetVolume} onValueChange={(v) => v && setTargetVolume(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(volumes ?? []).map((v) => (
+                    <SelectItem key={v.name} value={v.name}>
+                      {v.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-amber-700">
+                Apaga tudo que existe hoje nesse volume antes de restaurar — sem volta.
+              </p>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={
+              restore.isPending || (mode === "new" ? !newVolumeName.trim() : !targetVolume)
+            }
+            onClick={() => restore.mutate()}
+          >
+            {restore.isPending ? "Restaurando..." : "Restaurar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

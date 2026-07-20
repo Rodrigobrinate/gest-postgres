@@ -22,10 +22,10 @@ type DiscoveredContainer struct {
 // de imagem (é postgres:16-alpine de verdade, só que é NOSSO banco interno,
 // não algo do usuário pra adotar).
 var ownComposeServices = map[string]bool{
-	"metadata-db":          true,
-	"docker-socket-proxy":  true,
-	"backend":              true,
-	"frontend":             true,
+	"metadata-db":         true,
+	"docker-socket-proxy": true,
+	"backend":             true,
+	"frontend":            true,
 }
 
 // looksLikePostgres é a heurística de "isso parece um Postgres" — não tem

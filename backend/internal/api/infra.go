@@ -168,6 +168,15 @@ func (h *InfraHandler) AttachContainerVolume(w http.ResponseWriter, r *http.Requ
 	httpx.WriteJSON(w, http.StatusOK, map[string]string{"id": newID})
 }
 
+func (h *InfraHandler) SystemPrune(w http.ResponseWriter, r *http.Request) {
+	log, err := h.service.SystemPrune(r.Context())
+	if err != nil {
+		writeInfraError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"log": log})
+}
+
 func (h *InfraHandler) ListNetworks(w http.ResponseWriter, r *http.Request) {
 	list, err := h.service.ListNetworks(r.Context())
 	if err != nil {
@@ -424,7 +433,7 @@ func (h *InfraHandler) RemoveFirewallRule(w http.ResponseWriter, r *http.Request
 		httpx.WriteError(w, http.StatusBadRequest, "porta inválida")
 		return
 	}
-	if err := h.service.RemoveFirewallRule(r.Context(), port, r.PathValue("proto")); err != nil {
+	if err := h.service.RemoveFirewallRule(r.Context(), port, r.PathValue("proto"), r.URL.Query().Get("from")); err != nil {
 		writeInfraError(w, err)
 		return
 	}

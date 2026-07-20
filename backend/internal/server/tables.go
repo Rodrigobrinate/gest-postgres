@@ -18,7 +18,7 @@ var allowedColumnTypes = map[string]bool{
 	"text": true, "varchar": true, "char": true,
 	"integer": true, "bigint": true, "smallint": true,
 	"serial": true, "bigserial": true,
-	"boolean": true,
+	"boolean":   true,
 	"timestamp": true, "timestamptz": true, "date": true, "time": true,
 	"numeric": true, "real": true, "double precision": true,
 	"uuid": true, "jsonb": true, "json": true,

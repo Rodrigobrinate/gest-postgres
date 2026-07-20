@@ -14,19 +14,19 @@ import (
 var allowedBackupFrequencies = map[string]bool{"daily": true, "weekly": true}
 
 type BackupPolicy struct {
-	ID              string     `json:"id"`
-	ServerID        string     `json:"server_id"`
-	DatabaseName    string     `json:"database_name"`
-	Storage         string     `json:"storage"`
-	Frequency       string     `json:"frequency"` // daily | weekly
-	Weekday         *int       `json:"weekday,omitempty"`
-	TimeOfDay       string     `json:"time_of_day"` // "HH:MM"
-	RetentionCount  int        `json:"retention_count"`
-	Enabled         bool       `json:"enabled"`
-	LastRunAt       *time.Time `json:"last_run_at"`
-	LastRunStatus   string     `json:"last_run_status"`
-	LastRunError    string     `json:"last_run_error"`
-	CreatedAt       time.Time  `json:"created_at"`
+	ID             string     `json:"id"`
+	ServerID       string     `json:"server_id"`
+	DatabaseName   string     `json:"database_name"`
+	Storage        string     `json:"storage"`
+	Frequency      string     `json:"frequency"` // daily | weekly
+	Weekday        *int       `json:"weekday,omitempty"`
+	TimeOfDay      string     `json:"time_of_day"` // "HH:MM"
+	RetentionCount int        `json:"retention_count"`
+	Enabled        bool       `json:"enabled"`
+	LastRunAt      *time.Time `json:"last_run_at"`
+	LastRunStatus  string     `json:"last_run_status"`
+	LastRunError   string     `json:"last_run_error"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type CreateBackupPolicyInput struct {

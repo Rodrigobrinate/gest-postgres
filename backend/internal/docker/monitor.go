@@ -47,16 +47,16 @@ func (c *Client) containerLogs(ctx context.Context, containerID string, tailLine
 }
 
 type ContainerStatsSnapshot struct {
-	CPUPercent     float64 `json:"cpu_percent"`
-	MemoryUsedMB   float64 `json:"memory_used_mb"`
-	MemoryLimitMB  float64 `json:"memory_limit_mb"`
-	MemoryPercent  float64 `json:"memory_percent"`
-	NetworkRxBytes int64   `json:"network_rx_bytes"` // cumulativo desde que o container subiu, não taxa
-	NetworkTxBytes int64   `json:"network_tx_bytes"`
-	BlockReadBytes int64   `json:"block_read_bytes"` // idem — cumulativo
-	BlockWriteBytes int64  `json:"block_write_bytes"`
-	BlockReadOps   int64   `json:"block_read_ops"` // 0 em host cgroup v2 (kernel não expõe mais essa métrica)
-	BlockWriteOps  int64   `json:"block_write_ops"`
+	CPUPercent      float64 `json:"cpu_percent"`
+	MemoryUsedMB    float64 `json:"memory_used_mb"`
+	MemoryLimitMB   float64 `json:"memory_limit_mb"`
+	MemoryPercent   float64 `json:"memory_percent"`
+	NetworkRxBytes  int64   `json:"network_rx_bytes"` // cumulativo desde que o container subiu, não taxa
+	NetworkTxBytes  int64   `json:"network_tx_bytes"`
+	BlockReadBytes  int64   `json:"block_read_bytes"` // idem — cumulativo
+	BlockWriteBytes int64   `json:"block_write_bytes"`
+	BlockReadOps    int64   `json:"block_read_ops"` // 0 em host cgroup v2 (kernel não expõe mais essa métrica)
+	BlockWriteOps   int64   `json:"block_write_ops"`
 }
 
 // dockerStatsRaw só declara os campos que a gente usa — o JSON completo de

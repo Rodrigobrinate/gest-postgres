@@ -130,10 +130,14 @@ func (s *Service) DisableTraefik(ctx context.Context) error {
 }
 
 type ProxyRoute struct {
-	ID                string    `json:"id"`
-	Domain            string    `json:"domain"`
-	TargetContainer   string    `json:"target_container,omitempty"`
-	TargetPort        int       `json:"target_port,omitempty"`
+	ID              string `json:"id"`
+	Domain          string `json:"domain"`
+	TargetContainer string `json:"target_container,omitempty"`
+	TargetPort      int    `json:"target_port,omitempty"`
+	// TargetURL é o modo "apontar pra fora" (IP/host externo, qualquer
+	// serviço que não seja um container gerenciado por essa rede Docker) —
+	// mutuamente exclusivo com TargetContainer/TargetPort e RedirectTarget.
+	TargetURL         string    `json:"target_url,omitempty"`
 	TLS               bool      `json:"tls"`
 	PathPrefix        string    `json:"path_prefix"`
 	StripPrefix       bool      `json:"strip_prefix"`
@@ -144,12 +148,24 @@ type ProxyRoute struct {
 }
 
 func (r ProxyRoute) isRedirect() bool { return r.RedirectTarget != "" }
+func (r ProxyRoute) isExternal() bool { return r.TargetURL != "" }
+func (r ProxyRoute) upstreamURL() string {
+	if r.isExternal() {
+		return r.TargetURL
+	}
+	return fmt.Sprintf("http://%s:%d", r.TargetContainer, r.TargetPort)
+}
 
 type CreateProxyRouteInput struct {
 	Domain          string `json:"domain"`
 	TargetContainer string `json:"target_container,omitempty"`
 	TargetPort      int    `json:"target_port,omitempty"`
-	TLS             bool   `json:"tls"`
+	// TargetURL: aponta o domínio pra qualquer host:porta fora do Docker
+	// gerenciado (ex: "http://203.0.113.10:9000") — não conecta rede
+	// nenhuma, não valida que seja container, é repassado cru pro Traefik
+	// como upstream.
+	TargetURL string `json:"target_url,omitempty"`
+	TLS       bool   `json:"tls"`
 	// PathPrefix vazio vira "/" (raiz) — casa com qualquer path do domínio.
 	PathPrefix        string `json:"path_prefix,omitempty"`
 	StripPrefix       bool   `json:"strip_prefix,omitempty"`
@@ -167,7 +183,7 @@ var containerNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, domain, target_container, target_port, tls,
+		SELECT id, domain, target_container, target_port, target_url, tls,
 		       path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect, created_at
 		FROM proxy_routes ORDER BY created_at DESC
 	`)
@@ -179,7 +195,7 @@ func (s *Service) ListProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 	for rows.Next() {
 		var r ProxyRoute
 		if err := rows.Scan(
-			&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TLS,
+			&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TargetURL, &r.TLS,
 			&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect, &r.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("lendo rota: %w", err)
@@ -210,14 +226,28 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 	}
 
 	isRedirect := in.RedirectTarget != ""
-	if isRedirect {
+	isExternal := in.TargetURL != ""
+	if isRedirect && isExternal {
+		return nil, fmt.Errorf("uma rota é proxy, redirect ou destino externo — nunca mais de um ao mesmo tempo")
+	}
+
+	switch {
+	case isRedirect:
 		if in.TargetContainer != "" || in.TargetPort != 0 {
 			return nil, fmt.Errorf("uma rota é proxy OU redirect, não os dois")
 		}
 		if _, err := url.ParseRequestURI(in.RedirectTarget); err != nil {
 			return nil, fmt.Errorf("URL de redirecionamento inválida")
 		}
-	} else {
+	case isExternal:
+		if in.TargetContainer != "" || in.TargetPort != 0 {
+			return nil, fmt.Errorf("uma rota é proxy pra container OU destino externo, não os dois")
+		}
+		parsed, err := url.ParseRequestURI(in.TargetURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return nil, fmt.Errorf("URL de destino externo inválida — precisa ser http:// ou https://")
+		}
+	default:
 		if !containerNameRegex.MatchString(in.TargetContainer) {
 			return nil, fmt.Errorf("nome de container inválido")
 		}
@@ -232,16 +262,16 @@ func (s *Service) CreateProxyRoute(ctx context.Context, in CreateProxyRouteInput
 	var r ProxyRoute
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO proxy_routes (
-			domain, target_container, target_port, tls,
+			domain, target_container, target_port, target_url, tls,
 			path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, domain, target_container, target_port, tls,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING id, domain, target_container, target_port, target_url, tls,
 		          path_prefix, strip_prefix, redirect_target, redirect_permanent, https_redirect, created_at
-	`, in.Domain, in.TargetContainer, in.TargetPort, in.TLS,
+	`, in.Domain, in.TargetContainer, in.TargetPort, in.TargetURL, in.TLS,
 		pathPrefix, in.StripPrefix, in.RedirectTarget, in.RedirectPermanent, in.HTTPSRedirect,
 	).Scan(
-		&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TLS,
+		&r.ID, &r.Domain, &r.TargetContainer, &r.TargetPort, &r.TargetURL, &r.TLS,
 		&r.PathPrefix, &r.StripPrefix, &r.RedirectTarget, &r.RedirectPermanent, &r.HTTPSRedirect, &r.CreatedAt,
 	)
 	if err != nil {
@@ -351,8 +381,8 @@ func writeDynamicConfig(r ProxyRoute) error {
 				name, rule, name)
 		}
 
-		fmt.Fprintf(&b, "  services:\n    %s:\n      loadBalancer:\n        servers:\n          - url: \"http://%s:%d\"\n",
-			name, r.TargetContainer, r.TargetPort)
+		fmt.Fprintf(&b, "  services:\n    %s:\n      loadBalancer:\n        servers:\n          - url: \"%s\"\n",
+			name, r.upstreamURL())
 	}
 
 	return os.WriteFile(dynamicConfigPath(r.Domain), []byte(b.String()), 0o644)

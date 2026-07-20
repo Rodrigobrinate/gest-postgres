@@ -527,7 +527,6 @@ func (s *Service) allocatePort(ctx context.Context) (int, error) {
 	return next, nil
 }
 
-
 func mapDockerStatus(dockerStatus string) Status {
 	switch dockerStatus {
 	case "running":

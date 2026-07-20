@@ -56,10 +56,11 @@ export function TraefikTab() {
   });
 
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"proxy" | "redirect">("proxy");
+  const [mode, setMode] = useState<"proxy" | "redirect" | "external">("proxy");
   const [domain, setDomain] = useState("");
   const [targetContainer, setTargetContainer] = useState("");
   const [targetPort, setTargetPort] = useState(80);
+  const [targetUrl, setTargetUrl] = useState("");
   const [tls, setTls] = useState(true);
   const [pathPrefix, setPathPrefix] = useState("/");
   const [stripPrefix, setStripPrefix] = useState(false);
@@ -68,31 +69,41 @@ export function TraefikTab() {
   const [httpsRedirect, setHttpsRedirect] = useState(false);
 
   const createRoute = useMutation({
-    mutationFn: () =>
-      api.createProxyRoute(
-        mode === "proxy"
-          ? {
-              domain,
-              target_container: targetContainer,
-              target_port: targetPort,
-              tls,
-              path_prefix: pathPrefix,
-              strip_prefix: stripPrefix,
-              https_redirect: httpsRedirect,
-            }
-          : {
-              domain,
-              tls,
-              path_prefix: pathPrefix,
-              redirect_target: redirectTarget,
-              redirect_permanent: redirectPermanent,
-            }
-      ),
+    mutationFn: () => {
+      if (mode === "proxy") {
+        return api.createProxyRoute({
+          domain,
+          target_container: targetContainer,
+          target_port: targetPort,
+          tls,
+          path_prefix: pathPrefix,
+          strip_prefix: stripPrefix,
+          https_redirect: httpsRedirect,
+        });
+      }
+      if (mode === "external") {
+        return api.createProxyRoute({
+          domain,
+          target_url: targetUrl,
+          tls,
+          path_prefix: pathPrefix,
+          https_redirect: httpsRedirect,
+        });
+      }
+      return api.createProxyRoute({
+        domain,
+        tls,
+        path_prefix: pathPrefix,
+        redirect_target: redirectTarget,
+        redirect_permanent: redirectPermanent,
+      });
+    },
     onSuccess: () => {
       toast.success(`Rota "${domain}" criada`);
       setOpen(false);
       setDomain("");
       setTargetContainer("");
+      setTargetUrl("");
       setRedirectTarget("");
       invalidateRoutes();
     },
@@ -175,6 +186,10 @@ export function TraefikTab() {
                       <input type="radio" checked={mode === "redirect"} onChange={() => setMode("redirect")} />
                       Redirecionamento
                     </label>
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input type="radio" checked={mode === "external"} onChange={() => setMode("external")} />
+                      Destino externo
+                    </label>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -224,7 +239,7 @@ export function TraefikTab() {
                         </label>
                       )}
                     </>
-                  ) : (
+                  ) : mode === "redirect" ? (
                     <>
                       <div className="grid gap-1.5">
                         <Label>URL de destino</Label>
@@ -243,13 +258,26 @@ export function TraefikTab() {
                         Permanente (301) — desmarcado usa temporário (302)
                       </label>
                     </>
+                  ) : (
+                    <div className="grid gap-1.5">
+                      <Label>URL do destino externo</Label>
+                      <Input
+                        value={targetUrl}
+                        onChange={(e) => setTargetUrl(e.target.value)}
+                        placeholder="http://203.0.113.10:9000"
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        Qualquer host:porta alcançável do servidor — não precisa ser um container
+                        gerenciado por essa plataforma.
+                      </p>
+                    </div>
                   )}
 
                   <label className="flex items-center gap-1.5 text-sm">
                     <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} />
                     HTTPS automático (Let&apos;s Encrypt)
                   </label>
-                  {mode === "proxy" && tls && (
+                  {mode !== "redirect" && tls && (
                     <label className="flex items-center gap-1.5 text-sm">
                       <input
                         type="checkbox"
@@ -271,7 +299,9 @@ export function TraefikTab() {
                     disabled={
                       createRoute.isPending ||
                       !domain.trim() ||
-                      (mode === "proxy" ? !targetContainer.trim() : !redirectTarget.trim())
+                      (mode === "proxy" && !targetContainer.trim()) ||
+                      (mode === "redirect" && !redirectTarget.trim()) ||
+                      (mode === "external" && !targetUrl.trim())
                     }
                     onClick={() => createRoute.mutate()}
                   >
@@ -300,7 +330,9 @@ export function TraefikTab() {
                       <span className="text-muted-foreground font-mono text-xs">
                         {r.redirect_target
                           ? `↪ ${r.redirect_target} (${r.redirect_permanent ? "301" : "302"})`
-                          : `→ ${r.target_container}:${r.target_port}${r.strip_prefix ? " (sem prefixo)" : ""}`}
+                          : r.target_url
+                            ? `→ ${r.target_url}`
+                            : `→ ${r.target_container}:${r.target_port}${r.strip_prefix ? " (sem prefixo)" : ""}`}
                       </span>
                     </div>
                     <Button

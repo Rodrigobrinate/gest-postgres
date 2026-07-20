@@ -6,12 +6,15 @@
 // socket, mesmo espírito do docker-socket-proxy: um mediador estreito, não
 // acesso total exposto.
 //
-// Superfície proposital MÍNIMA: listar regras, liberar porta/protocolo,
-// remover regra por porta/protocolo. `ufw enable`/`disable`/`--force reset`
+// Superfície proposital MÍNIMA: listar regras, liberar porta/protocolo
+// (com origem opcional — IP/CIDR, ou "qualquer lugar" se vazio), remover
+// regra por porta/protocolo/origem. `ufw enable`/`disable`/`--force reset`
 // NUNCA são operações expostas por essa API — não existe endpoint pra isso,
 // não é uma questão de validação que dá pra contornar. E a porta 22/tcp
 // (SSH) nunca pode ser alterada por aqui em hipótese nenhuma, também
-// travado em código, não em confirmação de UI.
+// travado em código, não em confirmação de UI — mesmo com origem
+// restringida, esse caminho continua bloqueado de propósito (simplicidade
+// > flexibilidade nesse ponto específico).
 package main
 
 import (
@@ -33,6 +36,9 @@ type Rule struct {
 	Port   int    `json:"port"`
 	Proto  string `json:"proto"`
 	Action string `json:"action"`
+	// From: IP ou CIDR de origem — vazio = qualquer lugar (comportamento de
+	// sempre). "203.0.113.5" ou "203.0.113.0/24".
+	From string `json:"from,omitempty"`
 }
 
 func main() {
@@ -60,7 +66,9 @@ func main() {
 	log.Fatal(http.Serve(listener, mux))
 }
 
-var ruleLineRegex = regexp.MustCompile(`^(\d+)(/(tcp|udp))?\s*(\(v6\))?\s+(ALLOW|DENY|REJECT)\s`)
+// ruleLineRegex casa a linha de `ufw status` — grupo 6 é o "From" cru
+// ("Anywhere", "Anywhere (v6)" ou um IP/CIDR de verdade).
+var ruleLineRegex = regexp.MustCompile(`^(\d+)(/(tcp|udp))?\s*(\(v6\))?\s+(ALLOW|DENY|REJECT)(?:\s+IN)?\s+(\S+)`)
 
 // handleList mostra o estado de verdade quando o ufw tá ativo (`ufw
 // status`), mas cai pra `ufw show added` quando ainda tá inativo — sem
@@ -88,6 +96,14 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, rules)
 }
 
+func normalizeFrom(raw string) string {
+	raw = strings.TrimSuffix(raw, " (v6)")
+	if raw == "Anywhere" || raw == "Anywhere (v6)" || raw == "" {
+		return ""
+	}
+	return raw
+}
+
 func parseStatusRules(status string) []Rule {
 	seen := map[string]bool{}
 	var rules []Rule
@@ -102,22 +118,41 @@ func parseStatusRules(status string) []Rule {
 			proto = "tcp"
 		}
 		action := strings.ToLower(m[5])
-		key := fmt.Sprintf("%d/%s/%s", port, proto, action)
+		from := normalizeFrom(m[6])
+		key := fmt.Sprintf("%d/%s/%s/%s", port, proto, action, from)
 		if seen[key] {
 			continue // v4 e v6 da mesma regra viram uma entrada só
 		}
 		seen[key] = true
-		rules = append(rules, Rule{Port: port, Proto: proto, Action: action})
+		rules = append(rules, Rule{Port: port, Proto: proto, Action: action, From: from})
 	}
 	return rules
 }
 
-var addedLineRegex = regexp.MustCompile(`^ufw (allow|deny) (\d+)(/(tcp|udp))?`)
+var addedLineRegex = regexp.MustCompile(`^ufw (allow|deny) (\d+)(/(tcp|udp))?\s*$`)
+var addedFromLineRegex = regexp.MustCompile(`^ufw (allow|deny) from (\S+) to any port (\d+)(?: proto (tcp|udp))?`)
 
 func parseAddedRules(added string) []Rule {
 	seen := map[string]bool{}
 	var rules []Rule
 	for _, line := range strings.Split(added, "\n") {
+		line = strings.TrimSpace(line)
+		if m := addedFromLineRegex.FindStringSubmatch(line); m != nil {
+			action := m[1]
+			from := m[2]
+			port, _ := strconv.Atoi(m[3])
+			proto := m[4]
+			if proto == "" {
+				proto = "tcp"
+			}
+			key := fmt.Sprintf("%d/%s/%s/%s", port, proto, action, from)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			rules = append(rules, Rule{Port: port, Proto: proto, Action: action, From: from})
+			continue
+		}
 		m := addedLineRegex.FindStringSubmatch(line)
 		if m == nil {
 			continue
@@ -128,7 +163,7 @@ func parseAddedRules(added string) []Rule {
 		if proto == "" {
 			proto = "tcp"
 		}
-		key := fmt.Sprintf("%d/%s/%s", port, proto, action)
+		key := fmt.Sprintf("%d/%s/%s/", port, proto, action)
 		if seen[key] {
 			continue
 		}
@@ -136,6 +171,13 @@ func parseAddedRules(added string) []Rule {
 		rules = append(rules, Rule{Port: port, Proto: proto, Action: action})
 	}
 	return rules
+}
+
+func ufwArgs(action string, r Rule) []string {
+	if r.From == "" {
+		return []string{action, fmt.Sprintf("%d/%s", r.Port, r.Proto)}
+	}
+	return []string{action, "from", r.From, "to", "any", "port", strconv.Itoa(r.Port), "proto", r.Proto}
 }
 
 func handleAdd(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +194,7 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 	if in.Action == "deny" {
 		action = "deny"
 	}
-	spec := fmt.Sprintf("%d/%s", in.Port, in.Proto)
-	out, err := exec.Command("ufw", action, spec).CombinedOutput()
+	out, err := exec.Command("ufw", ufwArgs(action, in)...).CombinedOutput()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("ufw %s falhou: %v: %s", action, err, out))
 		return
@@ -164,26 +205,28 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 func handleDelete(w http.ResponseWriter, r *http.Request) {
 	port, convErr := strconv.Atoi(r.PathValue("port"))
 	proto := r.PathValue("proto")
+	from := r.URL.Query().Get("from")
 	if convErr != nil {
 		writeError(w, http.StatusBadRequest, "porta inválida")
 		return
 	}
-	if err := validateRule(Rule{Port: port, Proto: proto, Action: "allow"}); err != nil {
+	rule := Rule{Port: port, Proto: proto, Action: "allow", From: from}
+	if err := validateRule(rule); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	spec := fmt.Sprintf("%d/%s", port, proto)
 	// Tenta os dois sentidos (a regra pode ter sido allow ou deny) — `ufw
 	// delete` numa regra que não existe só devolve um erro inofensivo tipo
 	// "Could not delete non-existent rule", ignorado de propósito.
-	exec.Command("ufw", "delete", "allow", spec).Run()
-	exec.Command("ufw", "delete", "deny", spec).Run()
+	exec.Command("ufw", append([]string{"delete"}, ufwArgs("allow", rule)...)...).Run()
+	exec.Command("ufw", append([]string{"delete"}, ufwArgs("deny", rule)...)...).Run()
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 // validateRule é a trava dura: porta 22/tcp (SSH) nunca pode ser alterada
-// por essa API, nem allow nem deny — não é uma confirmação de UI que dá pra
-// pular, é o código recusando o pedido antes de chegar perto do `ufw`.
+// por essa API, nem allow nem deny, com ou sem origem restrita — não é uma
+// confirmação de UI que dá pra pular, é o código recusando o pedido antes
+// de chegar perto do `ufw`.
 func validateRule(r Rule) error {
 	if r.Proto != "tcp" && r.Proto != "udp" {
 		return fmt.Errorf("protocolo deve ser tcp ou udp")
@@ -193,6 +236,13 @@ func validateRule(r Rule) error {
 	}
 	if r.Port == 22 && r.Proto == "tcp" {
 		return fmt.Errorf("porta 22/tcp (SSH) nunca pode ser alterada por aqui — protege contra perder acesso remoto ao servidor")
+	}
+	if r.From != "" {
+		if net.ParseIP(r.From) == nil {
+			if _, _, err := net.ParseCIDR(r.From); err != nil {
+				return fmt.Errorf("origem inválida — use um IP (ex: 203.0.113.5) ou CIDR (ex: 203.0.113.0/24)")
+			}
+		}
 	}
 	return nil
 }

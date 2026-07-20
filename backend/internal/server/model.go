@@ -7,41 +7,41 @@ import "time"
 type Status string
 
 const (
-	StatusCreating  Status = "creating"
-	StatusRunning   Status = "running"
-	StatusStopped   Status = "stopped"
+	StatusCreating   Status = "creating"
+	StatusRunning    Status = "running"
+	StatusStopped    Status = "stopped"
 	StatusRestarting Status = "restarting"
-	StatusError     Status = "error"
-	StatusRemoving  Status = "removing"
+	StatusError      Status = "error"
+	StatusRemoving   Status = "removing"
 )
 
 type Preset string
 
 const (
-	PresetSmall      Preset = "small"
-	PresetMedium     Preset = "medium"
-	PresetLarge      Preset = "large"
-	PresetCustom     Preset = "custom"
+	PresetSmall  Preset = "small"
+	PresetMedium Preset = "medium"
+	PresetLarge  Preset = "large"
+	PresetCustom Preset = "custom"
 )
 
 // Resources é o que efetivamente vira limites do container Docker + parâmetros
 // de memória do postgresql.conf calculados a partir deles.
 type Resources struct {
-	CPUCores   float64 `json:"cpu_cores"`
-	MemoryMB   int     `json:"memory_mb"`
-	DiskGB     int     `json:"disk_gb"`
+	CPUCores float64 `json:"cpu_cores"`
+	MemoryMB int     `json:"memory_mb"`
+	DiskGB   int     `json:"disk_gb"`
 }
 
 // PostgresConfig é o subset de postgresql.conf coberto pelo MVP (ver CLAUDE.md).
 // Calculado automaticamente a partir de Resources quando Preset != custom, mas
 // sempre editável pelo usuário depois.
 type PostgresConfig struct {
-	MaxConnections           int    `json:"max_connections"`
-	SharedBuffersMB          int    `json:"shared_buffers_mb"`
-	WorkMemMB                int    `json:"work_mem_mb"`
-	MaintenanceWorkMemMB     int    `json:"maintenance_work_mem_mb"`
-	EffectiveCacheSizeMB     int    `json:"effective_cache_size_mb"`
-	LogMinDurationStatementMs int   `json:"log_min_duration_statement_ms"`
+	MaxConnections            int `json:"max_connections"`
+	SharedBuffersMB           int `json:"shared_buffers_mb"`
+	WorkMemMB                 int `json:"work_mem_mb"`
+	MaintenanceWorkMemMB      int `json:"maintenance_work_mem_mb"`
+	EffectiveCacheSizeMB      int `json:"effective_cache_size_mb"`
+	LogMinDurationStatementMs int `json:"log_min_duration_statement_ms"`
 }
 
 type Server struct {
