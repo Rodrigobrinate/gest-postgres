@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gest-postgres — Documentação</title>
+<meta name="description" content="Documentação completa do gest-postgres: cada parte do sistema, explicada." />
+<link rel="icon" href="data:," />
+<style>
+  :root {
+    --ink: #0a0e0c;
+    --panel: #0f1a15;
+    --panel2: #121f19;
+    --line: #24352c;
+    --paper: #ece5d6;
+    --muted: #859285;
+    --amber: #e3a542;
+    --teal: #5fae95;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+    /* docsify theme hooks */
+    --base-font-size: 16px;
+    --base-line-height: 1.65;
+    --base-font-color: var(--paper);
+    --base-background: var(--ink);
+    --content-max-width: 860px;
+
+    --sidebar-width: 280px;
+    --sidebar-background: var(--panel);
+    --sidebar-border-color: var(--line);
+    --sidebar-nav-link-color: var(--muted);
+    --sidebar-nav-link-color--active: var(--amber);
+    --sidebar-nav-link-color--hover: var(--paper);
+    --sidebar-nav-strong-color: var(--paper);
+
+    --link-color: var(--teal);
+    --link-color--hover: var(--amber);
+
+    --heading-color: var(--paper);
+    --heading-h1-border-color: var(--line);
+
+    --code-theme-background: var(--panel2);
+    --code-inline-background: rgba(95, 174, 149, 0.12);
+    --code-inline-color: var(--teal);
+
+    --table-row-odd-background: var(--panel);
+
+    --search-input-background: var(--panel2);
+    --search-input-border-color: var(--line);
+    --search-result-border-color: var(--line);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { background: var(--ink); }
+
+  body {
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app-name-link, .app-name-link:hover {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--paper) !important;
+  }
+  .app-name-link::after {
+    content: " · docs";
+    color: var(--amber);
+    font-weight: 400;
+  }
+
+  .sidebar { border-right: 1px solid var(--line); }
+  .sidebar ul li a { transition: color .15s ease; }
+  .sidebar ul li a.active { font-weight: 600; }
+  .sidebar-toggle { background: transparent; }
+  .sidebar-toggle span { background: var(--paper) !important; }
+
+  .content { background: var(--ink); }
+  .markdown-section { max-width: var(--content-max-width); padding: 44px 40px 80px; }
+
+  .markdown-section h1,
+  .markdown-section h2,
+  .markdown-section h3,
+  .markdown-section h4 { font-family: var(--mono); letter-spacing: -0.01em; }
+  .markdown-section h1 { font-size: 30px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .markdown-section h2 { font-size: 21px; margin-top: 2.2em; border-top: 1px solid var(--line); padding-top: 1.2em; }
+  .markdown-section h3 { font-size: 16.5px; color: var(--teal); }
+  .markdown-section h4 { font-size: 14.5px; color: var(--paper); }
+
+  .markdown-section p, .markdown-section li { color: var(--paper); }
+  .markdown-section strong { color: var(--paper); }
+  .markdown-section blockquote {
+    border-left: 3px solid var(--amber);
+    background: var(--panel);
+    color: var(--muted);
+    border-radius: 0 4px 4px 0;
+  }
+  .markdown-section blockquote p { color: var(--muted); }
+
+  .markdown-section table { border: 1px solid var(--line); }
+  .markdown-section table tr { border-top: 1px solid var(--line); background: var(--ink); }
+  .markdown-section table tr:nth-child(2n) { background: var(--panel); }
+  .markdown-section table th, .markdown-section table td { border: 1px solid var(--line); }
+  .markdown-section table th { color: var(--paper); background: var(--panel2); }
+
+  .markdown-section pre { border: 1px solid var(--line); border-radius: 6px; }
+  .markdown-section code { font-family: var(--mono); }
+
+  .markdown-section a { text-decoration: none; }
+  .markdown-section a:hover { text-decoration: underline; }
+
+  .search input { color: var(--paper); }
+  .search .results-panel { background: var(--panel); }
+  .search .matching-post { border-bottom: 1px solid var(--line); }
+  .search h2 { color: var(--paper) !important; }
+  .search a:hover { background: var(--panel2); }
+  .search .clear-button svg { fill: var(--muted); }
+
+  .pagination-item-label { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .pagination-item-title { color: var(--paper) !important; }
+  .pagination-item { border: 1px solid var(--line) !important; border-radius: 6px; }
+
+  mark { background: rgba(227, 165, 66, 0.35); color: var(--paper); }
+
+  .back-to-top-badge { display: none; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+  <div id="app">carregando documentação…</div>
+  <script>
+    window.$docsify = {
+      name: 'gest-postgres',
+      repo: 'https://github.com/Rodrigobrinate/gest-postgres',
+      loadSidebar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      homepage: 'README.md',
+      maxLevel: 4,
+      alias: {
+        '/.*/_sidebar.md': '/_sidebar.md'
+      },
+      search: {
+        maxAge: 86400000,
+        paths: 'auto',
+        placeholder: 'Buscar na documentação…',
+        noData: 'Nada encontrado.',
+        depth: 4
+      },
+      pagination: {
+        crossChapter: true,
+        crossChapterText: true
+      },
+      copyCode: {
+        buttonText: 'copiar',
+        errorText: 'erro',
+        successText: 'copiado'
+      },
+      formatUpdated: '{MM}/{DD}/{YYYY}'
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2/dist/docsify-copy-code.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination@2/dist/docsify-pagination.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-go.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-sql.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-docker.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
+</body>
+</html>
