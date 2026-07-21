@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -43,8 +44,18 @@ func (s *Service) ListVolumeBackups(ctx context.Context, volumeName string) ([]V
 	return out, rows.Err()
 }
 
-func backupFilePath(volumeName, filename string) string {
-	return filepath.Join(genericBackupsDir, volumeName, filename)
+// backupFilePath re-checa confinamento dentro de genericBackupsDir mesmo o
+// único escritor (BackupVolume) já validando volumeName antes de chegar
+// aqui — não explorável hoje, mas todo outro sink de path desse tipo no
+// projeto (ver resolveBackupPath do lado Postgres) tem essa re-checagem;
+// deixar esse de fora quebra o idioma e vira armadilha se um segundo
+// escritor aparecer sem repetir a validação (achado de auditoria).
+func backupFilePath(volumeName, filename string) (string, error) {
+	joined := filepath.Join(genericBackupsDir, volumeName, filename)
+	if !strings.HasPrefix(joined, genericBackupsDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("caminho de backup inválido")
+	}
+	return joined, nil
 }
 
 // BackupVolume sobe um snapshot .tar.gz do volume inteiro — via o mesmo
@@ -69,10 +80,13 @@ func (s *Service) BackupVolume(ctx context.Context, volumeName string) (*VolumeB
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("criando diretório de backup: %w", err)
 	}
-	path := backupFilePath(volumeName, filename)
+	path, err := backupFilePath(volumeName, filename)
+	if err != nil {
+		return nil, err
+	}
 
 	var backupID string
-	err := s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `
 		INSERT INTO volume_backups (volume_name, filename, status) VALUES ($1, $2, 'running')
 		RETURNING id::text
 	`, volumeName, filename).Scan(&backupID)
@@ -144,7 +158,11 @@ func (s *Service) DownloadVolumeBackup(ctx context.Context, id string) (*VolumeB
 	if b.Status != "completed" {
 		return nil, "", fmt.Errorf("backup ainda não concluído")
 	}
-	return b, backupFilePath(b.VolumeName, b.Filename), nil
+	path, err := backupFilePath(b.VolumeName, b.Filename)
+	if err != nil {
+		return nil, "", err
+	}
+	return b, path, nil
 }
 
 // RestoreVolumeBackup extrai um snapshot .tar.gz de volta num volume —
@@ -174,7 +192,11 @@ func (s *Service) RestoreVolumeBackup(ctx context.Context, backupID, targetVolum
 		}
 	}
 
-	f, err := os.Open(backupFilePath(b.VolumeName, b.Filename))
+	path, err := backupFilePath(b.VolumeName, b.Filename)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("abrindo arquivo de backup: %w", err)
 	}
@@ -204,6 +226,8 @@ func (s *Service) DeleteVolumeBackup(ctx context.Context, id string) error {
 	if _, err := s.pool.Exec(ctx, `DELETE FROM volume_backups WHERE id = $1`, id); err != nil {
 		return fmt.Errorf("excluindo registro de backup: %w", err)
 	}
-	os.Remove(backupFilePath(b.VolumeName, b.Filename))
+	if path, err := backupFilePath(b.VolumeName, b.Filename); err == nil {
+		os.Remove(path)
+	}
 	return nil
 }

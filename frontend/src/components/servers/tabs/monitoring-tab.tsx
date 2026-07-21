@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Square, XCircle, Database, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { MetricChart } from "../metric-chart";
+import { DatabaseSizeChart, ConnectionsPerDatabaseChart } from "../database-size-chart";
 import { AlertRules } from "../alert-rules";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -158,7 +159,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricChart
           title="CPU"
           data={history ?? []}
@@ -179,6 +180,13 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           dataKey="connection_count"
           color="#0891b2"
           formatValue={(v) => String(Math.round(v))}
+        />
+        <MetricChart
+          title="Disco"
+          data={history ?? []}
+          dataKey="disk_used_mb"
+          color="#d97706"
+          formatValue={(v) => formatBytes(v * 1024 * 1024)}
         />
       </div>
 
@@ -273,6 +281,11 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <DatabaseSizeChart history={history ?? []} />
+        <ConnectionsPerDatabaseChart history={history ?? []} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

@@ -6,7 +6,11 @@ ENV GOTOOLCHAIN=auto
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/api ./cmd/api
+# GIT_COMMIT vem de fora (docker-compose.yml build.args, setup.sh exporta a
+# partir do HEAD real) — o contexto de build aqui é só backend/, sem .git,
+# então não dá pra descobrir o commit de dentro do Dockerfile.
+ARG GIT_COMMIT=dev
+RUN CGO_ENABLED=0 go build -ldflags "-X github.com/gest-postgres/backend/internal/version.Commit=${GIT_COMMIT}" -o /out/api ./cmd/api
 
 FROM alpine:3.21
 # postgresql17-client: pg_dump/pg_restore pro backup, roda direto do backend

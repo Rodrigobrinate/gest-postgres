@@ -145,6 +145,15 @@ func (h *HostFilesHandler) Download(w http.ResponseWriter, r *http.Request) {
 		if info.IsDir() {
 			return nil
 		}
+		// filepath.Walk usa Lstat — um symlink aparece aqui como entrada
+		// não-dir, e os.Open (abaixo) segue o alvo dele normalmente. Sem
+		// pular symlink/arquivo não-regular aqui, um symlink plantado
+		// dentro da pasta gerenciada (ex: -> /etc/shadow) sai no zip do
+		// download de pasta, burlando o confinamento que a leitura de
+		// arquivo único já aplica via resolveHostPath (achado de auditoria).
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil
+		}
 		zf, err := zw.Create(filepath.ToSlash(filepath.Join(entry.Name, rel)))
 		if err != nil {
 			return err

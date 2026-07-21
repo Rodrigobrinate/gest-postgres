@@ -82,7 +82,7 @@ func run() error {
 	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
 	go infraService.RunCronSweep(ctx, 1*time.Minute)
 
-	router := api.NewRouter(serverService, infraService, authService, cfg.AllowedOrigins)
+	router := api.NewRouter(serverService, infraService, authService, cfg.AllowedOrigins, cfg.TrustedProxies)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,

@@ -13,6 +13,14 @@ type MetricPoint struct {
 	MemoryUsedMB    float64   `json:"memory_used_mb"`
 	ConnectionCount int       `json:"connection_count"`
 	DiskUsedMB      float64   `json:"disk_used_mb"`
+	// DatabaseSizesMB é o mesmo dado de DiskUsedMB, só que aberto por banco
+	// (nome -> MB) — usado pelo gráfico de linhas por banco na aba "Bancos
+	// de dados". omitempty pra não inflar o payload de quem só quer o total.
+	DatabaseSizesMB map[string]float64 `json:"database_sizes_mb,omitempty"`
+	// ConnectionsByDatabase é o mesmo dado de ConnectionCount, aberto por
+	// banco — mesmo raciocínio de DatabaseSizesMB, usado pelo gráfico de
+	// linhas "Conexões por banco".
+	ConnectionsByDatabase map[string]int `json:"connections_by_database,omitempty"`
 }
 
 // HistoryCollector guarda uma janela recente de métricas por servidor, só em
@@ -92,50 +100,99 @@ func (s *Service) collectMetricsOnce(ctx context.Context) {
 			continue
 		}
 
-		connCount, err := s.countConnections(ctx, record)
+		connsByDB, err := s.connectionsByDatabase(ctx, record)
+		connCount := -1
 		if err != nil {
 			slog.Warn("coleta de métricas: falha contando conexões", "server_id", record.ID, "error", err)
-			connCount = -1
+		} else {
+			connCount = 0
+			for _, n := range connsByDB {
+				connCount += n
+			}
 		}
 
-		diskMB, err := s.sumDatabaseSizeMB(ctx, record)
+		dbSizes, err := s.databaseSizesMB(ctx, record)
 		if err != nil {
 			slog.Warn("coleta de métricas: falha lendo tamanho dos bancos", "server_id", record.ID, "error", err)
 		}
+		var diskMB float64
+		for _, mb := range dbSizes {
+			diskMB += mb
+		}
 
 		s.history.append(record.ID, MetricPoint{
-			Timestamp:       now,
-			CPUPercent:      stats.CPUPercent,
-			MemoryUsedMB:    stats.MemoryUsedMB,
-			ConnectionCount: connCount,
-			DiskUsedMB:      diskMB,
+			Timestamp:             now,
+			CPUPercent:            stats.CPUPercent,
+			MemoryUsedMB:          stats.MemoryUsedMB,
+			ConnectionCount:       connCount,
+			DiskUsedMB:            diskMB,
+			DatabaseSizesMB:       dbSizes,
+			ConnectionsByDatabase: connsByDB,
 		})
 	}
 }
 
-func (s *Service) countConnections(ctx context.Context, record *Server) (int, error) {
+// connectionsByDatabase devolve o número de conexões de CADA banco numa
+// tacada só (GROUP BY datname) — usado tanto pro total agregado (aba
+// Monitoramento, gráfico "Conexões") quanto pro breakdown por banco
+// (gráfico de linhas "Conexões por banco"), mesmo raciocínio de
+// databaseSizesMB. Sessão sem banco associado (ex: processo em background
+// do próprio Postgres) fica de fora — backend_type='client backend' já
+// filtra isso.
+func (s *Service) connectionsByDatabase(ctx context.Context, record *Server) (map[string]int, error) {
 	conn, err := s.connectTo(ctx, record, record.DatabaseName)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer conn.Close(ctx)
 
-	var count int
-	err = conn.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend'`).Scan(&count)
-	return count, err
+	rows, err := conn.Query(ctx, `
+		SELECT datname, count(*) FROM pg_stat_activity
+		WHERE backend_type = 'client backend' AND datname IS NOT NULL
+		GROUP BY datname
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var name string
+		var n int
+		if err := rows.Scan(&name, &n); err != nil {
+			return nil, err
+		}
+		counts[name] = n
+	}
+	return counts, rows.Err()
 }
 
-func (s *Service) sumDatabaseSizeMB(ctx context.Context, record *Server) (float64, error) {
+// databaseSizesMB devolve o tamanho de CADA banco (não-template) em MB numa
+// tacada só — usado tanto pro total agregado (aba Monitoramento, gráfico
+// "Disco") quanto pro breakdown por banco (aba Bancos de dados, gráfico de
+// linhas), sem precisar de uma segunda conexão/query separada pra cada um.
+func (s *Service) databaseSizesMB(ctx context.Context, record *Server) (map[string]float64, error) {
 	conn, err := s.connectTo(ctx, record, "")
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer conn.Close(ctx)
 
-	var bytes int64
-	err = conn.QueryRow(ctx, `SELECT COALESCE(sum(pg_database_size(datname)), 0) FROM pg_database WHERE datistemplate = false`).Scan(&bytes)
+	rows, err := conn.Query(ctx, `SELECT datname, pg_database_size(datname) FROM pg_database WHERE datistemplate = false`)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return float64(bytes) / (1024 * 1024), nil
+	defer rows.Close()
+
+	sizes := make(map[string]float64)
+	for rows.Next() {
+		var name string
+		var bytes int64
+		if err := rows.Scan(&name, &bytes); err != nil {
+			return nil, err
+		}
+		sizes[name] = float64(bytes) / (1024 * 1024)
+	}
+	return sizes, rows.Err()
 }

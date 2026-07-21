@@ -175,7 +175,7 @@ func (h *GDriveHandler) SetConfig(w http.ResponseWriter, r *http.Request) {
 // autorizado" cadastrado no Google Cloud Console.
 func redirectURL(r *http.Request) string {
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if isRequestHTTPS(r) {
 		scheme = "https"
 	}
 	return fmt.Sprintf("%s://%s/api/v1/gdrive/callback", scheme, r.Host)

@@ -8,10 +8,58 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gest-postgres/backend/internal/httpx"
 	"github.com/gest-postgres/backend/internal/infra"
 )
+
+// webhookThrottle limita tentativa por IP de origem nessa rota — a ÚNICA da
+// API que não passa por sessão de usuário (autenticada só pela assinatura do
+// provedor), então não tem o throttle de login pra segurar tentativa
+// repetida de adivinhar ID de deployment + segredo (achado de auditoria).
+// Mesmo espírito do throttle de login (backoff exponencial por chave,
+// reseta no sucesso), instância própria — deployment nem sempre existe
+// ainda quando checamos, então não dá pra reaproveitar o throttle de login
+// sem acoplar os dois pacotes por pouco benefício.
+type webhookThrottle struct {
+	mu       sync.Mutex
+	attempts map[string]*webhookAttemptState
+}
+
+type webhookAttemptState struct {
+	failures    int
+	lockedUntil time.Time
+}
+
+var webhookLimiter = &webhookThrottle{attempts: make(map[string]*webhookAttemptState)}
+
+func (t *webhookThrottle) locked(key string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st, ok := t.attempts[key]
+	return ok && time.Now().Before(st.lockedUntil)
+}
+
+func (t *webhookThrottle) recordFailure(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st, ok := t.attempts[key]
+	if !ok {
+		st = &webhookAttemptState{}
+		t.attempts[key] = st
+	}
+	st.failures++
+	backoff := time.Duration(1<<uint(min(st.failures, 7))) * time.Second
+	st.lockedUntil = time.Now().Add(backoff)
+}
+
+func (t *webhookThrottle) recordSuccess(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.attempts, key)
+}
 
 type GitDeploymentsHandler struct {
 	service *infra.Service
@@ -71,10 +119,22 @@ func (h *GitDeploymentsHandler) RedeployNow(w http.ResponseWriter, r *http.Reque
 // formatos mais comuns: GitHub (X-Hub-Signature-256, HMAC-SHA256 do corpo
 // inteiro) e GitLab (X-Gitlab-Token, comparação direta de token).
 func (h *GitDeploymentsHandler) Webhook(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if webhookLimiter.locked(ip) {
+		httpx.WriteError(w, http.StatusTooManyRequests, "muitas tentativas — aguarde antes de tentar de novo")
+		return
+	}
+
 	id := r.PathValue("deploymentId")
 	secret, err := h.service.GitWebhookSecret(r.Context(), id)
 	if err != nil {
-		httpx.WriteError(w, http.StatusNotFound, "deployment não encontrado")
+		// Mesma resposta de "assinatura inválida" — id inexistente e
+		// assinatura errada precisam ser indistinguíveis pra fora, senão o
+		// status code vira oráculo pra enumerar deployment válido (achado
+		// de auditoria; mitigado pelo id já ser UUID, mas sem motivo pra
+		// manter a distinção).
+		webhookLimiter.recordFailure(ip)
+		httpx.WriteError(w, http.StatusUnauthorized, "assinatura inválida")
 		return
 	}
 
@@ -85,9 +145,11 @@ func (h *GitDeploymentsHandler) Webhook(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if !verifyGitWebhookAuth(r, body, secret) {
+		webhookLimiter.recordFailure(ip)
 		httpx.WriteError(w, http.StatusUnauthorized, "assinatura inválida")
 		return
 	}
+	webhookLimiter.recordSuccess(ip)
 
 	// Redeploy roda em background — GitHub/GitLab esperam resposta rápida
 	// do webhook (timeout curto), e clone+build pode demorar bem mais que

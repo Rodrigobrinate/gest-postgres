@@ -18,6 +18,7 @@ import { MonitoringTab } from "./tabs/monitoring-tab";
 import { LogsTab } from "./tabs/logs-tab";
 import { SqlEditorTab } from "./tabs/sql-editor-tab";
 import { TablesTab } from "./tabs/tables-tab";
+import { ErdTab } from "./tabs/erd-tab";
 import { ExtensionsTab } from "./tabs/extensions-tab";
 import { ConfigTab } from "./tabs/config-tab";
 import { UsersTab } from "./tabs/users-tab";
@@ -116,6 +117,7 @@ export function ServerDetailView({ id }: { id: string }) {
             <TabsTrigger value="logs">Logs</TabsTrigger>
             <TabsTrigger value="sql">Editor SQL</TabsTrigger>
             <TabsTrigger value="tables">Tabelas</TabsTrigger>
+            <TabsTrigger value="erd">ERD</TabsTrigger>
             <TabsTrigger value="extensions">Extensões</TabsTrigger>
             <TabsTrigger value="config">Configuração</TabsTrigger>
             <TabsTrigger value="users">Usuários</TabsTrigger>
@@ -136,6 +138,9 @@ export function ServerDetailView({ id }: { id: string }) {
           </TabsContent>
           <TabsContent value="tables" className="pt-4">
             <TablesTab serverId={id} database={activeDatabase} />
+          </TabsContent>
+          <TabsContent value="erd" className="pt-4">
+            <ErdTab serverId={id} database={activeDatabase} />
           </TabsContent>
           <TabsContent value="extensions" className="pt-4">
             <ExtensionsTab serverId={id} database={activeDatabase} />

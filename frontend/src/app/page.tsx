@@ -8,6 +8,7 @@ import { ServerTable } from "@/components/servers/server-table";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { UsersManager } from "@/components/auth/users-manager";
 import { NotificationChannelsManager } from "@/components/servers/notification-channels-manager";
+import { UpdateChecker } from "@/components/servers/update-checker";
 import { Boxes, Database } from "lucide-react";
 
 export default function Home() {
@@ -34,6 +35,7 @@ export default function Home() {
           <CreateServerDialog />
           <UsersManager />
           <NotificationChannelsManager />
+          <UpdateChecker />
           <LogoutButton />
         </div>
       </header>

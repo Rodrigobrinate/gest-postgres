@@ -172,9 +172,20 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 		stats.Containers = append(stats.Containers, cs)
 		stats.TotalCPUPercent += cs.CPUPercent
 		stats.TotalMemoryUsedMB += cs.MemoryUsedMB
-		stats.TotalMemoryLimitMB += cs.MemoryLimitMB
 		stats.NetworkRxBytesTotal += cs.NetworkRxBytes
 		stats.NetworkTxBytesTotal += cs.NetworkTxBytes
+	}
+
+	// Memória TOTAL vem do /info do Docker (memória real do host), nunca de
+	// somar MemoryLimitMB por container — container sem limite explícito
+	// reporta o host inteiro como "limite", e somar isso entre vários
+	// containers sem limite infla o total pra um múltiplo do real (bug
+	// visto ao vivo: dashboard mostrando "de 14665 MB" numa máquina de
+	// ~1.9GB). Cada container individual continua mostrando o limite dele
+	// próprio (cs.MemoryLimitMB) — só o AGREGADO da plataforma usa a fonte
+	// real, mesmo raciocínio já usado pro disco (docker.HostDiskUsage).
+	if memTotal, err := s.docker.HostMemoryTotalBytes(ctx); err == nil && memTotal > 0 {
+		stats.TotalMemoryLimitMB = float64(memTotal) / (1024 * 1024)
 	}
 	sort.Slice(stats.Containers, func(i, j int) bool {
 		return stats.Containers[i].CPUPercent > stats.Containers[j].CPUPercent

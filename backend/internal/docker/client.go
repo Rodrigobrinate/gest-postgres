@@ -109,6 +109,21 @@ func (c *Client) DiskUsage(ctx context.Context) (types.DiskUsage, error) {
 	return du, nil
 }
 
+// HostMemoryTotalBytes lê o /info do Docker (MemTotal — memória real do
+// HOST que o daemon enxerga, mesma fonte que "docker info"/"docker system
+// info" usam). Existe pra NUNCA somar o `MemoryLimitMB` de cada container:
+// container sem limite explícito de memória reporta o total do host inteiro
+// como seu próprio "limite" (fallback do cgroup pra "sem limite") — somar
+// isso entre vários containers sem limite infla o total pra um múltiplo do
+// que a máquina realmente tem (é exatamente o bug que isso corrige).
+func (c *Client) HostMemoryTotalBytes(ctx context.Context) (int64, error) {
+	info, err := c.cli.Info(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("lendo info do docker: %w", err)
+	}
+	return info.MemTotal, nil
+}
+
 func endpointsConfig(networkName string) map[string]*network.EndpointSettings {
 	return map[string]*network.EndpointSettings{
 		networkName: {},

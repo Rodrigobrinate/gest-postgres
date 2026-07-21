@@ -15,10 +15,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// cgnatBlock é o bloco de CGNAT (RFC 6598, 100.64.0.0/10) — não coberto por
+// nenhum dos IP.Is* do stdlib, mesmo raciocínio do blocklist gêmeo em
+// internal/server/notification_channels.go (achado de auditoria: faltava).
+var cgnatBlock = func() *net.IPNet {
+	_, n, err := net.ParseCIDR("100.64.0.0/10")
+	if err != nil {
+		panic(err)
+	}
+	return n
+}()
+
 // isInternalHost resolve o host e recusa qualquer IP loopback/link-local/
-// privado — sem isso, "destino externo" do Traefik consegue publicar um
-// serviço interno (docker-socket-proxy, metadata-db, o próprio backend) sob
-// um domínio público. Mesmo raciocínio de validateWebhookURL em
+// privado/CGNAT — sem isso, "destino externo" do Traefik consegue publicar
+// um serviço interno (docker-socket-proxy, metadata-db, o próprio backend)
+// sob um domínio público. Mesmo raciocínio de validateWebhookURL em
 // internal/server/notification_channels.go, duplicado aqui (pacotes
 // irmãos, sem um lugar compartilhado óbvio pra isso ainda).
 func isInternalHost(host string) bool {
@@ -27,7 +38,7 @@ func isInternalHost(host string) bool {
 		return false // não resolveu: deixa o Traefik/DNS lidar na hora do request
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() || cgnatBlock.Contains(ip) {
 			return true
 		}
 	}

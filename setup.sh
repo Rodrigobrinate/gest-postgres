@@ -236,6 +236,51 @@ systemctl enable gestpg-firewall-agent
 systemctl restart gestpg-firewall-agent
 ok "firewall-agent ativo (/run/gestpg-firewall.sock)"
 
+# ---------- 6.6. update-agent (botão "Atualizar agora") ----------
+# Mesmo raciocínio do firewall-agent: roda no HOST via systemd, nunca em
+# container, porque a pipeline que ele dispara (git pull + ./setup.sh)
+# precisa rodar como root no host, não dentro do sandbox do backend. A
+# pipeline é FIXA (não aceita comando arbitrário vindo da API) — ver
+# update-agent/main.go pro racional completo de por que a execução em si
+# roda numa unit systemd transiente separada (sobrevive a este agente
+# reiniciar no meio do próprio update que ele mesmo disparou).
+if ! command -v systemd-run >/dev/null 2>&1; then
+	warn "systemd-run não encontrado — botão 'Atualizar agora' não vai funcionar (checagem de atualização continua funcionando normalmente)"
+fi
+log "buildando e instalando update-agent (systemd, roda fora do Docker)"
+"$DOCKER" run --rm \
+	-v "$SCRIPT_DIR/update-agent:/src" \
+	-w /src \
+	-e GOTOOLCHAIN=auto \
+	-e CGO_ENABLED=0 \
+	golang:1.25-alpine \
+	go build -o /src/gestpg-update-agent .
+install -m 0755 update-agent/gestpg-update-agent /usr/local/bin/gestpg-update-agent
+rm -f update-agent/gestpg-update-agent
+
+cat > /etc/systemd/system/gestpg-update-agent.service <<UNIT
+[Unit]
+Description=gest-postgres update agent (git pull + setup.sh via socket Unix local)
+After=network.target
+
+[Service]
+Environment=GESTPG_REPO_DIR=$SCRIPT_DIR
+ExecStart=/usr/local/bin/gestpg-update-agent
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable gestpg-update-agent
+# restart, mesmo motivo do firewall-agent acima: o binário é sempre
+# reinstalado do zero, "enable --now" sozinho não pega código novo se o
+# serviço já tava rodando.
+systemctl restart gestpg-update-agent
+ok "update-agent ativo (/run/gestpg-update.sock)"
+
 # ufw: instala + libera 22/tcp ANTES de habilitar — ORDEM CRÍTICA, nunca
 # inverter (habilitar antes de liberar SSH tranca acesso remoto ao servidor
 # pra sempre, só recuperável pelo console web da provedora).
@@ -260,21 +305,60 @@ fi
 # esse tráfego, via a cadeia DOCKER-USER (Docker cria automaticamente desde
 # 17.06, mas nunca com nada dentro, então nunca filtra nada por padrão).
 # Idempotente: sempre reseta a cadeia antes de recriar, seguro rodar de novo.
-# Depois disso, `ufw route allow/deny proto tcp to any port 28080` passa a
-# funcionar de verdade (documentado no README) — não habilitado por padrão
-# aqui pra não quebrar o acesso direto via IP:porta que o resto do setup já
-# promete "funciona de cara" sem precisar configurar Traefik/domínio antes.
+# Cobre IPv4 e IPv6 (ip6tables) — só IPv4 deixava `ufw route deny` mudo pra
+# tráfego IPv6. Depois disso, `ufw route allow/deny proto tcp to any port
+# 28080` passa a funcionar de verdade (documentado no README) — não
+# habilitado por padrão aqui pra não quebrar o acesso direto via IP:porta
+# que o resto do setup já promete "funciona de cara" sem precisar
+# configurar Traefik/domínio antes.
+#
+# Instalado como script próprio (não só inline aqui) porque precisa rodar
+# de novo TODA vez que o Docker reinicia — `dockerd` recria a cadeia
+# DOCKER-USER do zero no boot, sem nada dentro, então o salto pro
+# ufw-user-forward some silenciosamente até o próximo `sudo ./setup.sh`. Uma
+# unit systemd oneshot com `After=docker.service` reaplica isso sozinho a
+# cada boot.
+cat > /usr/local/bin/gestpg-docker-user-forward.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+for bin in iptables ip6tables; do
+	command -v "$bin" >/dev/null 2>&1 || continue
+	"$bin" -N DOCKER-USER 2>/dev/null || true
+	"$bin" -F DOCKER-USER
+	"$bin" -A DOCKER-USER -j ufw-user-forward 2>/dev/null || true
+	"$bin" -A DOCKER-USER -j RETURN
+done
+SCRIPT
+chmod 0755 /usr/local/bin/gestpg-docker-user-forward.sh
+
 if command -v iptables >/dev/null 2>&1; then
 	log "habilitando cadeia DOCKER-USER (deixa ufw conseguir filtrar porta publicada por container)"
-	iptables -N DOCKER-USER 2>/dev/null || true
-	iptables -F DOCKER-USER
-	iptables -A DOCKER-USER -j ufw-user-forward 2>/dev/null || true
-	iptables -A DOCKER-USER -j RETURN
+	/usr/local/bin/gestpg-docker-user-forward.sh
 	ok "DOCKER-USER -> ufw-user-forward configurado (ufw route allow/deny agora filtra porta publicada)"
+
+	cat > /etc/systemd/system/gestpg-docker-user-forward.service <<'UNIT'
+[Unit]
+Description=gest-postgres: reaplica DOCKER-USER -> ufw-user-forward apos o Docker subir
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gestpg-docker-user-forward.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+	systemctl daemon-reload
+	systemctl enable gestpg-docker-user-forward.service
+	ok "gestpg-docker-user-forward.service habilitado (reaplica o salto sozinho a cada boot)"
 fi
 
 # ---------- 7. sobe o stack ----------
-log "subindo o stack (docker compose up --build -d)"
+# GIT_COMMIT embutido no binário do backend (ldflags, ver Dockerfile) — dá
+# pra UI comparar com o HEAD do GitHub e mostrar "atualização disponível".
+export GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
+log "subindo o stack (docker compose up --build -d, commit ${GIT_COMMIT})"
 "$DOCKER" compose up --build -d
 
 log "esperando backend responder em /api/v1/healthz"

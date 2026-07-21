@@ -228,9 +228,21 @@ func jsonSafeValue(v any) any {
 	switch val := v.(type) {
 	case []byte:
 		return string(val)
+	// pgx decodifica coluna uuid pra [16]byte (array de tamanho fixo, não
+	// slice — não bate no case "[]byte" acima nem implementa fmt.Stringer),
+	// então sem esse case o encoding/json despeja os 16 bytes crus como
+	// array de números (bug visto ao vivo: coluna id virando
+	// "[176,70,128,...]" em toda tabela com PK uuid).
+	case [16]byte:
+		return formatUUID(val)
 	case fmt.Stringer:
 		return val.String()
 	default:
 		return v
 	}
+}
+
+// formatUUID formata 16 bytes crus no formato canônico 8-4-4-4-12.
+func formatUUID(b [16]byte) string {
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }

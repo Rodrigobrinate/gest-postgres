@@ -22,8 +22,11 @@ var gitBranchRegex = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._/-]*$`)
 // allowedGitSchemes é a allowlist de transporte — cada um dos que faltam
 // (mais notavelmente "ext" e "file") vira execução de comando ou leitura
 // arbitrária de arquivo do próprio container do backend quando passado cru
-// pro `git clone`.
-var allowedGitSchemes = map[string]bool{"http": true, "https": true, "ssh": true, "git": true}
+// pro `git clone`. "git" (o protocolo `git://`, texto puro e sem
+// autenticação nenhuma — nem serve pra repositório privado) tirado da
+// lista (achado de auditoria): não adiciona nada que http(s)/ssh já não
+// cubram, só superfície.
+var allowedGitSchemes = map[string]bool{"http": true, "https": true, "ssh": true}
 
 // validateGitRepoURL fecha o RCE via transporte `ext::`/injeção de argumento
 // por traço — precisa rodar ANTES de qualquer outro processamento do
@@ -42,10 +45,29 @@ func validateGitRepoURL(repoURL string) error {
 		if err != nil || !allowedGitSchemes[u.Scheme] || u.Host == "" {
 			return fmt.Errorf("URL de repositório inválida — esquemas aceitos: http, https, ssh")
 		}
+		// SSRF: sem isso, "clonar de um repositório Git" vira um jeito de
+		// alcançar serviço interno (docker-socket-proxy, metadata-db, o
+		// próprio backend) — mesmo raciocínio de isInternalHost em
+		// traefik.go/validateWebhookURL em notification_channels.go
+		// (achado de auditoria: faltava aqui). Admin-only, mas sem motivo
+		// pra deixar de fora.
+		if isInternalHost(u.Hostname()) {
+			return fmt.Errorf("URL de repositório não pode apontar pra endereço interno/privado")
+		}
 		return nil
 	}
 	if !scpLikeGitURLRegex.MatchString(repoURL) {
 		return fmt.Errorf("URL de repositório inválida")
+	}
+	// Sintaxe curta de SSH ("user@host:path") não passa pelo url.Parse
+	// acima — mesma checagem de host interno, extraindo entre "@" e ":".
+	if at := strings.IndexByte(repoURL, '@'); at >= 0 {
+		if colon := strings.IndexByte(repoURL[at+1:], ':'); colon >= 0 {
+			host := repoURL[at+1 : at+1+colon]
+			if isInternalHost(host) {
+				return fmt.Errorf("URL de repositório não pode apontar pra endereço interno/privado")
+			}
+		}
 	}
 	return nil
 }

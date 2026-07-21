@@ -444,6 +444,18 @@ func (h *DetailHandler) Tables(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, tables)
 }
 
+func (h *DetailHandler) ERD(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+
+	erd, err := h.service.GetERD(r.Context(), id, database)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, erd)
+}
+
 func (h *DetailHandler) CreateTable(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	database := r.URL.Query().Get("database")

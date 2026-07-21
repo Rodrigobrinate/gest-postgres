@@ -59,6 +59,7 @@ export function ServerTable() {
           <TableHead>Recursos</TableHead>
           <TableHead>Porta</TableHead>
           <TableHead>Banco</TableHead>
+          <TableHead>Conexões</TableHead>
           <TableHead className="text-right">Ações</TableHead>
         </TableRow>
       </TableHeader>
@@ -80,6 +81,9 @@ export function ServerTable() {
             <TableCell>{PRESET_LABEL[server.preset] ?? server.preset}</TableCell>
             <TableCell className="font-mono text-sm">{server.host_port}</TableCell>
             <TableCell className="font-mono text-sm">{server.database_name}</TableCell>
+            <TableCell className="text-muted-foreground font-mono text-sm">
+              {server.connection_count != null ? server.connection_count : "—"}
+            </TableCell>
             <TableCell className="text-right">
               <ServerActions server={server} />
             </TableCell>

@@ -19,12 +19,47 @@ func NewAuthHandler(service *auth.Service) *AuthHandler {
 	return &AuthHandler{service: service}
 }
 
+// trustedProxyNets é setado uma vez, na montagem do router (ver
+// router.go/SetTrustedProxies), a partir de config.TrustedProxies — vazio
+// por padrão. Enquanto vazio, X-Forwarded-For/-Proto NUNCA são honrados
+// (instalação padrão publica a porta do backend crua, sem proxy real na
+// frente — confiar nesses headers incondicionalmente deixa qualquer
+// requisição direta forjar IP de origem e burlar o throttle de login, ou
+// forjar "https" pra suprimir o cookie Secure). Só populado quando o admin
+// configura TRUSTED_PROXIES porque tem um reverse proxy de verdade
+// (Traefik) terminando TLS/repassando IP na frente do backend.
+var trustedProxyNets []*net.IPNet
+
+func SetTrustedProxies(nets []*net.IPNet) {
+	trustedProxyNets = nets
+}
+
+func isTrustedPeer(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range trustedProxyNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // isRequestHTTPS detecta se a requisição chegou por TLS — direto (r.TLS,
 // raro já que a instalação padrão publica a porta do backend crua) ou via
-// X-Forwarded-Proto (quando tem Traefik/outro proxy terminando TLS na
-// frente, mesmo sinal que redirectURL() já usa pro callback do OAuth).
+// X-Forwarded-Proto, mas só quando o peer imediato (r.RemoteAddr) é um
+// proxy confiável configurado — ver trustedProxyNets.
 func isRequestHTTPS(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	if r.TLS != nil {
+		return true
+	}
+	return isTrustedPeer(r.RemoteAddr) && r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 // setSessionCookie marca Secure quando dá pra confirmar que a conexão é
@@ -48,19 +83,27 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-// clientIP extrai o IP de origem pro throttle de login — X-Forwarded-For
-// primeiro (Traefik/outro proxy na frente já pode estar em uso, ver infra
-// Traefik) senão RemoteAddr direto.
+// clientIP extrai o IP de origem pro throttle de login. RemoteAddr (peer
+// real do socket TCP) é a fonte padrão — não é forjável por quem manda a
+// requisição. X-Forwarded-For só é honrado quando o peer imediato é um
+// proxy confiável configurado (ver trustedProxyNets); nesse caso lê a
+// entrada MAIS À DIREITA do header (o hop que o próprio proxy confiável
+// anexou), nunca a mais à esquerda — essa pode ter sido forjada pelo
+// cliente original antes de chegar no proxy. Sem essa distinção, um
+// atacante manda um X-Forwarded-For diferente a cada tentativa e o
+// throttle por IP nunca acumula (achado de auditoria).
 func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		if i := strings.IndexByte(fwd, ','); i >= 0 {
-			return strings.TrimSpace(fwd[:i])
-		}
-		return strings.TrimSpace(fwd)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if isTrustedPeer(r.RemoteAddr) {
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			parts := strings.Split(fwd, ",")
+			if last := strings.TrimSpace(parts[len(parts)-1]); last != "" {
+				return last
+			}
+		}
 	}
 	return host
 }

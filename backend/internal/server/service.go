@@ -216,8 +216,15 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 }
 
 func waitPostgresReady(ctx context.Context, containerName, username, password, database string, timeout time.Duration) error {
+	// sslmode=prefer (não disable): tenta TLS primeiro, cai pra texto puro se
+	// o servidor não oferecer — nossos próprios Postgres gerenciados não têm
+	// SSL configurado, então isso continua conectando em texto puro igual
+	// antes (sem regressão), mas passa a funcionar contra um alvo que EXIGE
+	// SSL (ex: container adotado via auto-descoberta cujo Postgres/pooler na
+	// frente força TLS) — sem isso a validação de credencial no cadastro
+	// falhava com "FATAL: SSL required" antes mesmo de tentar autenticar.
 	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s:5432/%s?sslmode=disable&connect_timeout=2",
+		"postgres://%s:%s@%s:5432/%s?sslmode=prefer&connect_timeout=2",
 		url.QueryEscape(username), url.QueryEscape(password), containerName, url.QueryEscape(database),
 	)
 
@@ -362,6 +369,15 @@ func (s *Service) List(ctx context.Context) ([]*Server, error) {
 	}
 	for _, record := range list {
 		s.refreshLiveStatus(ctx, record)
+		if record.Status == StatusRunning {
+			if points := s.history.get(record.ID); len(points) > 0 {
+				// -1 é o sentinel de "falhou contando" (ver collectMetricsOnce)
+				// — não é uma contagem de verdade, não mostra pro usuário.
+				if last := points[len(points)-1].ConnectionCount; last >= 0 {
+					record.ConnectionCount = &last
+				}
+			}
+		}
 	}
 	return list, nil
 }

@@ -21,6 +21,13 @@ var ErrRateLimited = errors.New("muitas tentativas — aguarde antes de tentar d
 const (
 	sessionTTL = 30 * 24 * time.Hour
 	stepUpTTL  = 5 * time.Minute
+	// sessionAbsoluteCeiling é o teto de vida independente de atividade —
+	// sem isso, um token roubado usado 1x a cada janela de sessionTTL
+	// nunca expira, pra sempre (janela deslizante pura, achado de
+	// auditoria). Bem maior que sessionTTL de propósito: não deveria
+	// forçar relogin de quem usa a plataforma normalmente, só fechar a
+	// janela infinita.
+	sessionAbsoluteCeiling = 90 * 24 * time.Hour
 )
 
 // dummyPasswordHash é comparado quando o username não existe, pra gastar o
@@ -182,17 +189,23 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 	th := hashToken(token)
 
 	var sess Session
+	var createdAt time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT s.id::text, s.expires_at, s.elevated_until, u.id::text, u.username, u.role
+		SELECT s.id::text, s.created_at, s.expires_at, s.elevated_until, u.id::text, u.username, u.role
 		FROM admin_sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.token_hash = $1 AND s.expires_at > now()
-	`, th).Scan(&sess.ID, &sess.ExpiresAt, &sess.ElevatedUntil, &sess.UserID, &sess.Username, &sess.Role)
+	`, th).Scan(&sess.ID, &createdAt, &sess.ExpiresAt, &sess.ElevatedUntil, &sess.UserID, &sess.Username, &sess.Role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrInvalidCredentials
 		}
 		return nil, fmt.Errorf("lendo sessão: %w", err)
+	}
+
+	if time.Since(createdAt) > sessionAbsoluteCeiling {
+		_, _ = s.pool.Exec(ctx, `DELETE FROM admin_sessions WHERE token_hash = $1`, th)
+		return nil, ErrInvalidCredentials
 	}
 
 	newExpiry := time.Now().Add(sessionTTL)

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { clearAllQueryHistory } from "@/lib/use-query-history";
 import { CurrentUserProvider } from "./current-user";
 
 // AuthGate bloqueia a UI protegida até confirmar sessão válida via
@@ -32,6 +33,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isLoginPage && isError) {
+      // Mesma limpeza do botão de logout — sessão inválida/expirada
+      // detectada aqui é um logout automático, histórico de SQL não pode
+      // sobreviver na aba pro próximo usuário que logar (achado de
+      // auditoria: só o botão de logout limpava).
+      clearAllQueryHistory();
       router.replace("/login");
     }
   }, [isLoginPage, isError, router]);

@@ -47,13 +47,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("escutando socket %s: %v", socketPath, err)
 	}
-	// 0666: o backend roda dentro de um container com UID diferente do
-	// processo desse agente no host, não dá pra alinhar UID/GID de forma
-	// simples — o socket só é alcançável por quem já tem acesso ao
-	// filesystem do host montado no container (bind mount explícito no
-	// docker-compose.yml), então isso não abre nada que já não estivesse
-	// implicitamente acessível por quem controla o backend.
-	if err := os.Chmod(socketPath, 0o666); err != nil {
+	// 0660, não 0666 (achado de auditoria): esse processo roda como root no
+	// host (owner=root, group=root por padrão), e o backend também roda
+	// como root dentro do container (sem USER não-root no Dockerfile, sem
+	// remap de user namespace no compose — root do container é root do
+	// host pra fins de checagem de permissão em bind mount), então 0660 já
+	// deixa o backend conectar sem nenhum ajuste extra. O que muda é que
+	// 0666 deixava QUALQUER processo/usuário local do host (não só root)
+	// manipular regras de firewall — 0660 fecha isso.
+	if err := os.Chmod(socketPath, 0o660); err != nil {
 		log.Fatalf("ajustando permissão do socket: %v", err)
 	}
 

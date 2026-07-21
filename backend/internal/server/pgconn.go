@@ -21,8 +21,12 @@ func (s *Service) connectTo(ctx context.Context, record *Server, database string
 		database = record.DatabaseName
 	}
 
+	// sslmode=prefer: tenta TLS, cai pra texto puro se o servidor não
+	// oferecer — sem regressão pros nossos Postgres gerenciados (sem SSL
+	// configurado), mas funciona contra um alvo adotado que exige SSL (ver
+	// mesmo raciocínio em waitPostgresReady, service.go).
 	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s:5432/%s?sslmode=disable&connect_timeout=5",
+		"postgres://%s:%s@%s:5432/%s?sslmode=prefer&connect_timeout=5",
 		url.QueryEscape(record.Username), url.QueryEscape(password),
 		record.ContainerName, url.QueryEscape(database),
 	)

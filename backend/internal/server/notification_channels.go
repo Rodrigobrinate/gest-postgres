@@ -12,14 +12,31 @@ import (
 	"time"
 )
 
+// cgnatBlock é o bloco de CGNAT (RFC 6598, 100.64.0.0/10) — não coberto por
+// nenhum dos IP.Is* do stdlib (não é loopback/link-local/privado RFC1918),
+// mas é roteável só dentro da rede do provedor de nuvem, mesmo espírito de
+// link-local pra fins de SSRF (achado de auditoria: faltava no blocklist).
+var cgnatBlock = func() *net.IPNet {
+	_, n, err := net.ParseCIDR("100.64.0.0/10")
+	if err != nil {
+		panic(err)
+	}
+	return n
+}()
+
+func isBlockedSSRFIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsPrivate() || cgnatBlock.Contains(ip)
+}
+
 // validateWebhookURL fecha SSRF cego: sem isso, um admin (ou uma sessão
 // abusada) cadastra um alerta/canal apontando pra serviço interno alcançável
 // do backend — metadata de nuvem (169.254.169.254), o próprio
 // docker-socket-proxy, localhost. Resolve o host e rejeita qualquer IP
-// loopback/link-local/privado — checagem na CRIAÇÃO do canal/regra, não a
-// cada disparo (mitiga na origem; DNS rebinding entre criação e disparo é um
-// risco residual aceito, mesmo escopo "admin-only, exfiltração limitada" que
-// o relatório de segurança já registrou pra esse item).
+// loopback/link-local/privado/CGNAT — checagem na CRIAÇÃO do canal/regra.
+// DNS rebinding entre criação e disparo é mitigado à parte, ver
+// safeDialContext (o dialer do cliente que efetivamente envia o POST pina
+// no IP validado, não reresolve o host na hora de conectar).
 func validateWebhookURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
@@ -30,7 +47,7 @@ func validateWebhookURL(rawURL string) error {
 		return fmt.Errorf("%w: não foi possível resolver o host de webhook_url", ErrValidation)
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsPrivate() {
+		if isBlockedSSRFIP(ip) {
 			return fmt.Errorf("%w: webhook_url não pode apontar pra endereço interno/privado", ErrValidation)
 		}
 	}
@@ -205,14 +222,46 @@ func redactSecretsInError(err error) error {
 	return fmt.Errorf("%s", redacted)
 }
 
+// safeDialContext resolve o host e recusa conectar se QUALQUER IP resolvido
+// for interno/privado/CGNAT, depois conecta direto no IP já validado — nunca
+// deixa o transport HTTP padrão reresolver o hostname na hora de conectar.
+// Fecha o TOCTOU de DNS rebinding entre validateWebhookURL (checagem na
+// criação do canal) e o disparo de verdade: um host que respondia IP público
+// no cadastro e passa a responder IP interno no disparo é pego aqui, não só
+// na criação (achado de auditoria).
+func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("não foi possível resolver %q", host)
+	}
+	for _, ip := range ips {
+		if isBlockedSSRFIP(ip.IP) {
+			return nil, fmt.Errorf("destino resolve pra endereço interno/privado")
+		}
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+}
+
 // noRedirectClient nunca segue redirect — um alvo malicioso poderia
 // responder 30x apontando pra endereço interno depois da validação de
-// SSRF já ter passado no host original (checagem em validateWebhookURL
-// roda só na criação, não revalida cada hop).
+// SSRF já ter passado no host original. DialContext pinado (ver
+// safeDialContext) fecha o rebind entre a validação na criação do canal e
+// o disparo de verdade.
 var noRedirectClient = &http.Client{
 	Timeout: 10 * time.Second,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
+	},
+	Transport: &http.Transport{
+		DialContext: safeDialContext,
 	},
 }
 

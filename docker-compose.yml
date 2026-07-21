@@ -80,7 +80,17 @@ services:
     networks: [gestpg-internal]
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        # Commit embutido no binário via ldflags (ver Dockerfile) — dá pra
+        # comparar com o HEAD do GitHub e mostrar "atualização disponível" na
+        # UI sem precisar de nenhum arquivo de versão separado pra manter em
+        # sincronia manualmente. setup.sh exporta essa var antes do build;
+        # sem ela (build manual, `docker compose up --build` direto) fica
+        # "dev", e a checagem de atualização mostra "não foi possível
+        # determinar a versão atual" em vez de comparar errado.
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
     restart: unless-stopped
     # O backend concentra bastante superfície sensível (credencial do
     # docker-socket-proxy, socket do firewall-agent, HOST_FILES_ROOT) — não
@@ -105,6 +115,9 @@ services:
       # (só logada dentro do container, nunca no output do setup.sh).
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:4173}
+      # Vazio por padrão de propósito — ver .env.example. Só popular se um
+      # reverse proxy de verdade estiver na frente do backend.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     ports:
       - "28080:28080"
     volumes:
@@ -129,6 +142,10 @@ services:
       # precisa já existir (agente já rodando) ANTES desse `up`, senão o
       # Docker cria um diretório vazio no lugar em vez de repassar o socket.
       - /run/gestpg-firewall.sock:/run/gestpg-firewall.sock
+      # update-agent — mesmo raciocínio do firewall-agent acima, mas pra
+      # disparar `git pull && ./setup.sh` no host (botão "Atualizar agora").
+      # Também precisa já estar rodando antes desse `up`.
+      - /run/gestpg-update.sock:/run/gestpg-update.sock
     depends_on:
       metadata-db:
         condition: service_healthy

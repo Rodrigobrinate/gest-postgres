@@ -1,3 +1,5 @@
+import { clearAllQueryHistory } from "@/lib/use-query-history";
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:28080";
 
 export type ServerStatus =
@@ -45,6 +47,7 @@ export interface ManagedServer {
   pooler_pool_mode: string;
   created_at: string;
   updated_at: string;
+  connection_count?: number;
 }
 
 export interface UpdateServerInput {
@@ -77,6 +80,34 @@ export interface TableInfo {
   name: string;
   size_bytes: number;
   estimated_rows: number;
+}
+
+export interface ERDColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  primary_key: boolean;
+}
+
+export interface ERDTable {
+  schema: string;
+  name: string;
+  columns: ERDColumn[];
+}
+
+export interface ERDRelationship {
+  constraint_name: string;
+  from_schema: string;
+  from_table: string;
+  from_column: string;
+  to_schema: string;
+  to_table: string;
+  to_column: string;
+}
+
+export interface ERD {
+  tables: ERDTable[];
+  relationships: ERDRelationship[];
 }
 
 export interface TableRowsResult {
@@ -243,6 +274,8 @@ export interface MetricPoint {
   memory_used_mb: number;
   connection_count: number;
   disk_used_mb: number;
+  database_sizes_mb?: Record<string, number>;
+  connections_by_database?: Record<string, number>;
 }
 
 export interface TableBloat {
@@ -366,6 +399,25 @@ export interface LogLine {
 }
 
 export type AlertMetric = "connections_pct" | "disk_pct" | "long_running_query_seconds" | "deadlocks";
+
+export interface UpdateCheckResult {
+  current_commit: string;
+  unknown: boolean;
+  latest_commit?: string;
+  latest_commit_date?: string;
+  latest_commit_message?: string;
+  up_to_date: boolean;
+  compare_url?: string;
+}
+
+export interface UpdateApplyStatus {
+  status: "idle" | "running" | "success" | "failed" | "unknown";
+  started_at?: string;
+  finished_at?: string;
+  exit_code?: number;
+  error?: string;
+  log_tail?: string;
+}
 
 export interface AlertRule {
   id: string;
@@ -876,6 +928,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401 && typeof window !== "undefined" && path !== "/api/v1/auth/login") {
+    // Mesmo tratamento do botão de logout — sessão caiu (expirou ou foi
+    // revogada), histórico de SQL (rotineiramente com senha em `CREATE
+    // ROLE ... PASSWORD`) não pode sobreviver numa aba compartilhada até o
+    // próximo usuário logar (achado de auditoria: só o botão limpava).
+    clearAllQueryHistory();
     window.location.href = "/login";
   }
 
@@ -1028,6 +1085,9 @@ export const api = {
 
   listTables: (id: string, database: string) =>
     request<TableInfo[]>(`/api/v1/servers/${id}/tables?database=${encodeURIComponent(database)}`),
+
+  getERD: (id: string, database: string) =>
+    request<ERD>(`/api/v1/servers/${id}/erd?database=${encodeURIComponent(database)}`),
 
   createTable: (id: string, database: string, input: CreateTableInput) =>
     request<{ status: string }>(
@@ -1774,6 +1834,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ password }),
     }),
+
+  checkUpdate: () => request<UpdateCheckResult>(`/api/v1/update-check`),
+  updateStatus: () => request<UpdateApplyStatus>(`/api/v1/update/status`),
+  applyUpdate: () =>
+    request<{ status: string }>(`/api/v1/update/apply`, { method: "POST" }),
 };
 
 export { ApiError };

@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, type SlowQuery } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -22,7 +23,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { RotateCcw, Zap, Trash2, Wrench } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RotateCcw, Zap, Trash2, Wrench, Copy, ChevronUp, ChevronDown } from "lucide-react";
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -35,10 +43,73 @@ const ORDER_OPTIONS = [
   { value: "calls", label: "Nº de chamadas" },
 ] as const;
 
+type SortKey = keyof SlowQuery;
+
+const COLUMNS: { key: SortKey; label: string; align: "left" | "right" }[] = [
+  { key: "query", label: "Query", align: "left" },
+  { key: "calls", label: "Chamadas", align: "right" },
+  { key: "total_exec_ms", label: "Tempo total", align: "right" },
+  { key: "mean_exec_ms", label: "Tempo médio", align: "right" },
+  { key: "rows", label: "Linhas", align: "right" },
+  { key: "cache_hit_ratio", label: "Cache hit", align: "right" },
+];
+
+function sortQueries(queries: SlowQuery[], key: SortKey, dir: "asc" | "desc") {
+  const sorted = [...queries].sort((a, b) => {
+    const av = a[key];
+    const bv = b[key];
+    const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : Number(av) - Number(bv);
+    return dir === "asc" ? cmp : -cmp;
+  });
+  return sorted;
+}
+
+function formatQueryValue(q: SlowQuery, key: SortKey): string {
+  switch (key) {
+    case "calls":
+    case "rows":
+      return String(q[key]);
+    case "total_exec_ms":
+      return `${q.total_exec_ms.toFixed(1)}ms`;
+    case "mean_exec_ms":
+      return `${q.mean_exec_ms.toFixed(2)}ms`;
+    case "cache_hit_ratio":
+      return `${(q.cache_hit_ratio * 100).toFixed(0)}%`;
+    default:
+      return String(q[key]);
+  }
+}
+
+// copyQueriesToClipboard copia as N primeiras linhas (na ordem atual da
+// tabela, já filtrada/ordenada) como TSV — cola direto em planilha.
+function copyQueriesToClipboard(queries: SlowQuery[], count: number) {
+  const rows = queries.slice(0, count);
+  const header = COLUMNS.map((c) => c.label).join("\t");
+  const lines = rows.map((q) =>
+    COLUMNS.map((c) => (c.key === "query" ? q.query.replace(/[\t\n]/g, " ") : formatQueryValue(q, c.key))).join(
+      "\t"
+    )
+  );
+  return navigator.clipboard.writeText([header, ...lines].join("\n"));
+}
+
 export function PerformanceTab({ serverId, database }: { serverId: string; database: string }) {
   const [orderBy, setOrderBy] = useState<(typeof ORDER_OPTIONS)[number]["value"]>("total_time");
   const [search, setSearch] = useState("");
   const [minMeanMs, setMinMeanMs] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyCount, setCopyCount] = useState("10");
+
+  function handleHeaderClick(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["servers", serverId, "slow-queries", database, orderBy],
@@ -124,6 +195,27 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
     if (minMeanMs.trim() && !Number.isNaN(minMeanMsNum) && q.mean_exec_ms < minMeanMsNum) return false;
     return true;
   });
+  // Sem useMemo de propósito — esse componente já tem um early return
+  // condicional acima (fluxo "extensão não habilitada"), então um Hook
+  // aqui violaria a regra de Hooks (chamado condicionalmente). Reordenar
+  // algumas centenas de linhas a cada render não pesa o bastante pra
+  // justificar mover essa lógica pra antes do return só pra usar useMemo.
+  const sortedQueries = sortKey ? sortQueries(filteredQueries, sortKey, sortDir) : filteredQueries;
+
+  function confirmCopy() {
+    const n = Number(copyCount);
+    if (!Number.isFinite(n) || n <= 0) {
+      toast.error("Número de linhas inválido");
+      return;
+    }
+    copyQueriesToClipboard(sortedQueries, Math.floor(n)).then(
+      () => {
+        toast.success(`${Math.min(Math.floor(n), sortedQueries.length)} linha(s) copiada(s)`);
+        setCopyOpen(false);
+      },
+      () => toast.error("Falha ao copiar — navegador bloqueou acesso à área de transferência")
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -155,10 +247,21 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
             className="w-44"
           />
         </div>
-        <Button size="sm" variant="outline" onClick={() => reset.mutate()} disabled={reset.isPending}>
-          <RotateCcw className="size-3.5" />
-          Zerar estatísticas
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setCopyOpen(true)}
+            disabled={sortedQueries.length === 0}
+          >
+            <Copy className="size-3.5" />
+            Copiar
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => reset.mutate()} disabled={reset.isPending}>
+            <RotateCcw className="size-3.5" />
+            Zerar estatísticas
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -176,16 +279,27 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Query</TableHead>
-                    <TableHead className="text-right">Chamadas</TableHead>
-                    <TableHead className="text-right">Tempo total</TableHead>
-                    <TableHead className="text-right">Tempo médio</TableHead>
-                    <TableHead className="text-right">Linhas</TableHead>
-                    <TableHead className="text-right">Cache hit</TableHead>
+                    {COLUMNS.map((col) => (
+                      <TableHead
+                        key={col.key}
+                        className={`cursor-pointer select-none ${col.align === "right" ? "text-right" : ""}`}
+                        onClick={() => handleHeaderClick(col.key)}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {col.label}
+                          {sortKey === col.key &&
+                            (sortDir === "asc" ? (
+                              <ChevronUp className="size-3" />
+                            ) : (
+                              <ChevronDown className="size-3" />
+                            ))}
+                        </span>
+                      </TableHead>
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredQueries.map((q) => (
+                  {sortedQueries.map((q) => (
                     <TableRow key={q.query_id}>
                       <TableCell
                         className="max-w-md truncate font-mono text-xs"
@@ -278,6 +392,32 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Copiar linhas</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-1.5">
+            <Label htmlFor="copy-count">Quantas linhas (de {sortedQueries.length})?</Label>
+            <Input
+              id="copy-count"
+              type="number"
+              min={1}
+              max={sortedQueries.length}
+              value={copyCount}
+              onChange={(e) => setCopyCount(e.target.value)}
+              autoFocus
+            />
+            <p className="text-muted-foreground text-xs">
+              Copia como texto separado por tab (cola direto em planilha), na ordem atual da tabela.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={confirmCopy}>Copiar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

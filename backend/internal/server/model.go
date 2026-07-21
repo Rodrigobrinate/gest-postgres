@@ -54,6 +54,13 @@ type Server struct {
 	Resources   Resources      `json:"resources"`
 	Config      PostgresConfig `json:"config"`
 
+	// ConnectionCount é transiente — nunca vem do repo, preenchido em
+	// Service.List a partir do último ponto já coletado pelo
+	// HistoryCollector (mesma amostragem de ~15s da aba Monitoramento, sem
+	// abrir conexão nova nenhuma só pra listar). nil quando o servidor não
+	// tá rodando ou ainda não teve nenhuma amostra coletada.
+	ConnectionCount *int `json:"connection_count,omitempty"`
+
 	HostPort int    `json:"host_port"`
 	Username string `json:"username"`
 	// PasswordEncrypted nunca é serializado pra fora da camada de persistência.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/gest-postgres/backend/internal/auth"
@@ -9,12 +10,21 @@ import (
 	"github.com/gest-postgres/backend/internal/server"
 )
 
-func NewRouter(serverService *server.Service, infraService *infra.Service, authService *auth.Service, allowedOrigins []string) http.Handler {
+func NewRouter(serverService *server.Service, infraService *infra.Service, authService *auth.Service, allowedOrigins []string, trustedProxies []*net.IPNet) http.Handler {
+	SetTrustedProxies(trustedProxies)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/v1/healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("GET /api/v1/update-check", CheckUpdate)
+	// Ver update_check.go: ApplyUpdate roda git pull + setup.sh no HOST via
+	// update-agent — maior blast radius de toda a API, por isso exige sessão
+	// elevada (step-up de senha), não só admin (que POST/DELETE já exige
+	// globalmente via withAuth). Status é admin-only: expõe log operacional
+	// de build/deploy que viewer não precisa ver.
+	mux.HandleFunc("GET /api/v1/update/status", requireAdmin(UpdateStatus))
+	mux.HandleFunc("POST /api/v1/update/apply", requireElevated(ApplyUpdate))
 
 	authHandler := NewAuthHandler(authService)
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
@@ -56,6 +66,7 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("GET /api/v1/servers/{id}/database-sizes", detail.DatabaseSizes)
 	mux.HandleFunc("GET /api/v1/servers/{id}/metrics-history", detail.MetricsHistory)
 	mux.HandleFunc("GET /api/v1/servers/{id}/tables", detail.Tables)
+	mux.HandleFunc("GET /api/v1/servers/{id}/erd", detail.ERD)
 	mux.HandleFunc("POST /api/v1/servers/{id}/tables", detail.CreateTable)
 	mux.HandleFunc("DELETE /api/v1/servers/{id}/tables/{schema}/{table}", detail.DropTable)
 	mux.HandleFunc("GET /api/v1/servers/{id}/tables/{schema}/{table}/rows", detail.TableRows)
@@ -88,7 +99,11 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("GET /api/v1/servers/{id}/backups", detail.ListBackups)
 	mux.HandleFunc("POST /api/v1/servers/{id}/backups", detail.CreateBackup)
 	mux.HandleFunc("DELETE /api/v1/servers/{id}/backups/{backupId}", detail.DeleteBackup)
-	mux.HandleFunc("GET /api/v1/servers/{id}/backups/{backupId}/download", detail.DownloadBackup)
+	// Download é o `pg_dump` completo do banco — banco inteiro num arquivo
+	// só, além do que o modelo "viewer lê linha de tabela" já aceita
+	// documentado (achado de auditoria: extrapola o que GET=viewer deveria
+	// cobrir).
+	mux.HandleFunc("GET /api/v1/servers/{id}/backups/{backupId}/download", requireAdmin(detail.DownloadBackup))
 	mux.HandleFunc("POST /api/v1/servers/{id}/backups/{backupId}/restore", detail.RestoreBackup)
 	mux.HandleFunc("GET /api/v1/servers/{id}/backup-policies", detail.ListBackupPolicies)
 	mux.HandleFunc("POST /api/v1/servers/{id}/backup-policies", detail.CreateBackupPolicy)
@@ -97,7 +112,10 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("POST /api/v1/servers/{id}/backup-policies/{policyId}/run", detail.RunBackupPolicy)
 
 	notificationChannels := NewNotificationChannelsHandler(serverService)
-	mux.HandleFunc("GET /api/v1/notification-channels", notificationChannels.List)
+	// webhook_url é segredo-portador pra Slack/Discord/etc (o path da URL É
+	// a credencial) — GET sozinho não bastava pra proteger isso de viewer
+	// (achado de auditoria).
+	mux.HandleFunc("GET /api/v1/notification-channels", requireAdmin(notificationChannels.List))
 	mux.HandleFunc("POST /api/v1/notification-channels", notificationChannels.Create)
 	mux.HandleFunc("DELETE /api/v1/notification-channels/{channelId}", notificationChannels.Delete)
 	mux.HandleFunc("POST /api/v1/notification-channels/{channelId}/test", notificationChannels.Test)
@@ -105,8 +123,15 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	gdrive := NewGDriveHandler(serverService)
 	mux.HandleFunc("GET /api/v1/gdrive/status", gdrive.Status)
 	mux.HandleFunc("POST /api/v1/gdrive/config", gdrive.SetConfig)
-	mux.HandleFunc("GET /api/v1/gdrive/auth-url", gdrive.AuthURL)
-	mux.HandleFunc("GET /api/v1/gdrive/callback", gdrive.Callback)
+	// auth-url/callback são GET (o navegador do usuário navega até eles,
+	// não dá pra ser POST) mas ESCREVEM estado persistente (oauth_state,
+	// depois refresh_token) — sem requireAdmin, um viewer completa o
+	// próprio consentimento OAuth e sequestra o destino de todo backup
+	// futuro pra conta Google dele (achado de auditoria). O cookie do
+	// admin de verdade (SameSite=Lax, navegação GET top-level) continua
+	// passando normalmente no callback.
+	mux.HandleFunc("GET /api/v1/gdrive/auth-url", requireAdmin(gdrive.AuthURL))
+	mux.HandleFunc("GET /api/v1/gdrive/callback", requireAdmin(gdrive.Callback))
 	mux.HandleFunc("POST /api/v1/gdrive/disconnect", gdrive.Disconnect)
 
 	infraHandler := NewInfraHandler(infraService)
@@ -141,9 +166,14 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/stop", infraHandler.StopContainer)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/restart", infraHandler.RestartContainer)
 	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}", infraHandler.RemoveContainer)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/logs", infraHandler.ContainerLogs)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/inspect", infraHandler.ContainerDetail)
-	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/stats", infraHandler.ContainerStats)
+	// logs/inspect/stats admin-only: mesmo segredo que o file manager já
+	// protege (env do container, que pro backend inclui
+	// CREDENTIAL_ENCRYPTION_KEY/ADMIN_PASSWORD) vaza igual por essas rotas
+	// irmãs — log pode ecoar senha de bootstrap, inspect devolve Config.Env
+	// cru. GET sozinho não era gate suficiente (achado de auditoria).
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/logs", requireAdmin(infraHandler.ContainerLogs))
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/inspect", requireAdmin(infraHandler.ContainerDetail))
+	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/stats", requireAdmin(infraHandler.ContainerStats))
 	mux.HandleFunc("GET /api/v1/infra/containers/{containerId}/stats-history", infraHandler.ContainerStatsHistory)
 	mux.HandleFunc("POST /api/v1/infra/containers/{containerId}/networks", infraHandler.ConnectContainerNetwork)
 	mux.HandleFunc("DELETE /api/v1/infra/containers/{containerId}/networks/{networkName}", infraHandler.DisconnectContainerNetwork)
