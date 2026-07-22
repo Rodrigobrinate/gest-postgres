@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Line,
   LineChart,
@@ -12,7 +13,8 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { TimeRangeButtons, filterByRange } from "./timerange-buttons";
+import { api } from "@/lib/api";
+import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, type RangeKey } from "./timerange-buttons";
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -28,6 +30,9 @@ type Props<T extends PointWithTimestamp> = {
   color: string;
   unit?: string;
   formatValue?: (v: number) => string;
+  // Informar isso liga os períodos 24h/7d/30d — sem serverId, o modal só
+  // recorta o buffer em memória que já tinha (comportamento de sempre).
+  serverId?: string;
 };
 
 function Chart<T extends PointWithTimestamp>({
@@ -86,12 +91,24 @@ function Chart<T extends PointWithTimestamp>({
 }
 
 export function MetricChart<T extends PointWithTimestamp>(props: Props<T>) {
-  const { title, data } = props;
+  const { title, data, serverId } = props;
   const hasData = data.length >= 2;
   const [open, setOpen] = useState(false);
-  const [rangeMs, setRangeMs] = useState(Infinity);
+  const [range, setRange] = useState<RangeKey>("1h");
+  const extended = isBackendRange(range);
 
-  const zoomedData = filterByRange(data, rangeMs, (p) => new Date(p.timestamp).getTime());
+  const { data: extendedData, isFetching: extendedLoading } = useQuery({
+    queryKey: ["servers", serverId, "metrics-history", range],
+    queryFn: () => api.metricsHistory(serverId!, range),
+    enabled: open && extended && !!serverId,
+  });
+
+  // extendedData vem de MetricPoint[] (única forma real usada em produção
+  // pra esse componente genérico) — cast seguro pro T do chamador, evita
+  // duplicar esse componente 4x só pra diferenciar o tipo do dataKey.
+  const zoomedData = extended
+    ? ((extendedData ?? []) as unknown as T[])
+    : filterByRange(data, rangeMs(range), (p) => new Date(p.timestamp).getTime());
 
   return (
     <>
@@ -120,11 +137,18 @@ export function MetricChart<T extends PointWithTimestamp>(props: Props<T>) {
             <DialogHeader>
               <DialogTitle>{title}</DialogTitle>
             </DialogHeader>
-            <TimeRangeButtons value={rangeMs} onChange={setRangeMs} />
-            <Chart {...props} data={zoomedData} height={320} />
+            <TimeRangeButtons value={range} onChange={setRange} />
+            {extended && extendedLoading ? (
+              <div className="text-muted-foreground flex h-[320px] items-center justify-center text-xs">
+                Carregando histórico...
+              </div>
+            ) : (
+              <Chart {...props} data={zoomedData} height={320} />
+            )}
             <p className="text-muted-foreground text-xs">
-              Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período
-              acima recorta esse buffer, não busca dados mais antigos.
+              {extended
+                ? "Dado agregado por hora além das últimas 24h (média/mín/máx) — persistido, sobrevive a reinício do backend."
+                : "Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período acima recorta esse buffer, não busca dados mais antigos."}
             </p>
           </DialogContent>
         </Dialog>

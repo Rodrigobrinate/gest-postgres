@@ -459,7 +459,13 @@ func (h *DetailHandler) DatabaseSizes(w http.ResponseWriter, r *http.Request) {
 
 func (h *DetailHandler) MetricsHistory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	httpx.WriteJSON(w, http.StatusOK, h.service.GetMetricsHistory(id))
+	rangeDur := server.ParseHistoryRange(r.URL.Query().Get("range"))
+	points, err := h.service.GetMetricsHistory(r.Context(), id, rangeDur)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, points)
 }
 
 func (h *DetailHandler) Tables(w http.ResponseWriter, r *http.Request) {

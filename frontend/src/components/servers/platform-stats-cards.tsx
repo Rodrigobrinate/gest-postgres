@@ -7,18 +7,19 @@ import {
   LineChart,
   ResponsiveContainer,
   Tooltip,
+  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { api, type ContainerStat, type PlatformStats } from "@/lib/api";
+import { api, type ContainerStat, type PlatformMetricPoint, type PlatformStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Cpu, MemoryStick, HardDrive, Network, PlugZap } from "lucide-react";
+import { Cpu, MemoryStick, HardDrive, Network, PlugZap, Disc } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { RegisterDialog } from "./discover-servers-dialog";
-import { TimeRangeButtons, filterByRange } from "./timerange-buttons";
+import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, type RangeKey } from "./timerange-buttons";
 
 function formatClockTime(ms: number) {
   return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -50,6 +51,41 @@ function toRateSeries(values: number[], timestamps: number[]) {
     rates.push(dt > 0 ? Math.max((values[i] - values[i - 1]) / dt, 0) : 0);
   }
   return rates;
+}
+
+// Extractors em nível de módulo — reaproveitados tanto pro cálculo inicial
+// (janela curta, já em memória) quanto pelo SparkCard quando busca um
+// período estendido (24h/7d/30d) do backend, mesma transformação nos dois
+// casos.
+function extractCPU(h: PlatformMetricPoint[]) {
+  return zip(h.map((p) => new Date(p.timestamp).getTime()), h.map((p) => p.cpu_percent));
+}
+function extractMemory(h: PlatformMetricPoint[]) {
+  return zip(h.map((p) => new Date(p.timestamp).getTime()), h.map((p) => p.memory_used_mb));
+}
+function extractDisk(h: PlatformMetricPoint[]) {
+  return zip(h.map((p) => new Date(p.timestamp).getTime()), h.map((p) => p.disk_used_bytes));
+}
+function extractNetwork(h: PlatformMetricPoint[]) {
+  const timestamps = h.map((p) => new Date(p.timestamp).getTime());
+  const rx = toRateSeries(h.map((p) => p.network_rx_bytes), timestamps);
+  const tx = toRateSeries(h.map((p) => p.network_tx_bytes), timestamps);
+  const net = rx.map((v, i) => v + (tx[i] ?? 0));
+  return zip(timestamps.slice(1), net);
+}
+
+function formatOps(v: number) {
+  return `${v.toFixed(1)} op/s`;
+}
+
+// Read/write já chegam como taxa pronta do backend (docker.HostIOPS calcula
+// por delta lá, ver internal/docker/hostiops.go) — diferente de rede, não
+// precisa de toRateSeries aqui.
+function extractReadOps(h: PlatformMetricPoint[]) {
+  return zip(h.map((p) => new Date(p.timestamp).getTime()), h.map((p) => p.read_ops_per_sec));
+}
+function extractWriteOps(h: PlatformMetricPoint[]) {
+  return zip(h.map((p) => new Date(p.timestamp).getTime()), h.map((p) => p.write_ops_per_sec));
 }
 
 export function PlatformStatsCards() {
@@ -99,9 +135,6 @@ export function PlatformStatsCards() {
   }
 
   const timestamps = (history ?? []).map((p) => new Date(p.timestamp).getTime());
-  const cpuSeries = (history ?? []).map((p) => p.cpu_percent);
-  const memSeries = (history ?? []).map((p) => p.memory_used_mb);
-  const diskSeries = (history ?? []).map((p) => p.disk_used_bytes);
   const rxSeries = toRateSeries(
     (history ?? []).map((p) => p.network_rx_bytes),
     timestamps
@@ -110,7 +143,6 @@ export function PlatformStatsCards() {
     (history ?? []).map((p) => p.network_tx_bytes),
     timestamps
   );
-  const netSeries = rxSeries.map((v, i) => v + (txSeries[i] ?? 0));
 
   const memPercent =
     data.total_memory_limit_mb > 0 ? (data.total_memory_used_mb / data.total_memory_limit_mb) * 100 : 0;
@@ -118,10 +150,14 @@ export function PlatformStatsCards() {
   const currentRxRate = rxSeries.length > 0 ? rxSeries[rxSeries.length - 1] : 0;
   const currentTxRate = txSeries.length > 0 ? txSeries[txSeries.length - 1] : 0;
 
-  const cpuPoints = zip(timestamps, cpuSeries);
-  const memPoints = zip(timestamps, memSeries);
-  const diskPoints = zip(timestamps, diskSeries);
-  const netPoints = zip(timestamps.slice(1), netSeries);
+  const cpuPoints = extractCPU(history ?? []);
+  const memPoints = extractMemory(history ?? []);
+  const diskPoints = extractDisk(history ?? []);
+  const netPoints = extractNetwork(history ?? []);
+  const readOpsPoints = extractReadOps(history ?? []);
+  const writeOpsPoints = extractWriteOps(history ?? []);
+  const currentReadOps = readOpsPoints.length > 0 ? readOpsPoints[readOpsPoints.length - 1].value : 0;
+  const currentWriteOps = writeOpsPoints.length > 0 ? writeOpsPoints[writeOpsPoints.length - 1].value : 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -132,6 +168,7 @@ export function PlatformStatsCards() {
           value={`${data.total_cpu_percent.toFixed(1)}%`}
           hint={`${data.containers.length} container(s)`}
           points={cpuPoints}
+          extract={extractCPU}
           color="#2563eb"
           formatValue={(v) => `${v.toFixed(1)}%`}
         />
@@ -141,6 +178,7 @@ export function PlatformStatsCards() {
           value={`${data.total_memory_used_mb.toFixed(0)} MB`}
           hint={`de ${data.total_memory_limit_mb.toFixed(0)} MB (${memPercent.toFixed(0)}%)`}
           points={memPoints}
+          extract={extractMemory}
           color="#7c3aed"
           formatValue={(v) => `${v.toFixed(0)} MB`}
         />
@@ -154,6 +192,7 @@ export function PlatformStatsCards() {
               : "mount /hostfs indisponível"
           }
           points={diskPoints}
+          extract={extractDisk}
           color="#059669"
           formatValue={formatBytes}
         />
@@ -163,10 +202,18 @@ export function PlatformStatsCards() {
           value={`↓${formatRate(currentRxRate)}`}
           hint={`↑${formatRate(currentTxRate)}`}
           points={netPoints}
+          extract={extractNetwork}
           color="#0891b2"
           formatValue={formatRate}
         />
       </div>
+
+      <IOPSCard
+        readPoints={readOpsPoints}
+        writePoints={writeOpsPoints}
+        currentRead={currentReadOps}
+        currentWrite={currentWriteOps}
+      />
 
       <Card>
         <CardHeader>
@@ -286,6 +333,7 @@ function SparkCard({
   value,
   hint,
   points,
+  extract,
   color,
   formatValue,
 }: {
@@ -294,13 +342,24 @@ function SparkCard({
   value: string;
   hint?: string;
   points: { timestamp: number; value: number }[];
+  extract: (h: PlatformMetricPoint[]) => { timestamp: number; value: number }[];
   color: string;
   formatValue: (v: number) => string;
 }) {
   const [open, setOpen] = useState(false);
-  const [rangeMs, setRangeMs] = useState(Infinity);
+  const [range, setRange] = useState<RangeKey>("1h");
+  const extended = isBackendRange(range);
   const hasData = points.length >= 2;
-  const zoomed = filterByRange(points, rangeMs, (p) => p.timestamp);
+
+  const { data: extendedHistory, isFetching: extendedLoading } = useQuery({
+    queryKey: ["platform-stats-history", range],
+    queryFn: () => api.platformStatsHistory(range),
+    enabled: open && extended,
+  });
+
+  const zoomed = extended
+    ? extract(extendedHistory ?? [])
+    : filterByRange(points, rangeMs(range), (p) => p.timestamp);
 
   return (
     <>
@@ -328,7 +387,12 @@ function SparkCard({
             <DialogHeader>
               <DialogTitle>{label}</DialogTitle>
             </DialogHeader>
-            <TimeRangeButtons value={rangeMs} onChange={setRangeMs} />
+            <TimeRangeButtons value={range} onChange={setRange} />
+            {extended && extendedLoading ? (
+              <div className="text-muted-foreground flex h-[320px] items-center justify-center text-xs">
+                Carregando histórico...
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={zoomed} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
@@ -367,9 +431,147 @@ function SparkCard({
                 />
               </LineChart>
             </ResponsiveContainer>
+            )}
             <p className="text-muted-foreground text-xs">
-              Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período
-              acima recorta esse buffer, não busca dados mais antigos.
+              {extended
+                ? "Dado agregado por hora além das últimas 24h (média/mín/máx) — persistido, sobrevive a reinício do backend."
+                : "Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período acima recorta esse buffer, não busca dados mais antigos."}
+            </p>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+// IOPSCard mostra operações de leitura/escrita por segundo do disco do HOST
+// (não bytes, não soma de container) — pedido explícito comparando com um
+// painel Zabbix noutro servidor. Duas linhas (não uma, como os outros
+// cards) — leitura e escrita têm perfis bem diferentes (ex: WAL do Postgres
+// é escrita pesada, leitura de cache raramente bate no disco).
+function IOPSCard({
+  readPoints,
+  writePoints,
+  currentRead,
+  currentWrite,
+}: {
+  readPoints: { timestamp: number; value: number }[];
+  writePoints: { timestamp: number; value: number }[];
+  currentRead: number;
+  currentWrite: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [range, setRange] = useState<RangeKey>("1h");
+  const extended = isBackendRange(range);
+  const hasData = readPoints.length >= 2;
+
+  const { data: extendedHistory, isFetching: extendedLoading } = useQuery({
+    queryKey: ["platform-stats-history", range],
+    queryFn: () => api.platformStatsHistory(range),
+    enabled: open && extended,
+  });
+
+  const zoomedRead = extended
+    ? extractReadOps(extendedHistory ?? [])
+    : filterByRange(readPoints, rangeMs(range), (p) => p.timestamp);
+  const zoomedWrite = extended
+    ? extractWriteOps(extendedHistory ?? [])
+    : filterByRange(writePoints, rangeMs(range), (p) => p.timestamp);
+  // Mescla os dois pra alimentar um LineChart só, com timestamp comum —
+  // read/write são amostrados juntos (mesmo tick), então os arrays sempre
+  // têm o mesmo comprimento/timestamps.
+  const zoomedData = zoomedRead.map((p, i) => ({
+    timestamp: p.timestamp,
+    read: p.value,
+    write: zoomedWrite[i]?.value ?? 0,
+  }));
+
+  return (
+    <>
+      <Card
+        className={hasData ? "cursor-pointer transition-colors hover:bg-muted/40" : undefined}
+        onClick={() => hasData && setOpen(true)}
+        title={hasData ? "Clique pra ampliar e mudar o período" : undefined}
+      >
+        <CardHeader>
+          <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+            <Disc className="size-4" />
+            I/O de disco do host (operações/s)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!hasData ? (
+            <div className="text-muted-foreground flex h-[120px] items-center justify-center text-xs">
+              Coletando dados... (amostra a cada 15s)
+            </div>
+          ) : (
+            <>
+              <p className="text-muted-foreground mb-2 text-xs">
+                Leitura: <span className="text-foreground font-medium">{formatOps(currentRead)}</span> · Escrita:{" "}
+                <span className="text-foreground font-medium">{formatOps(currentWrite)}</span>
+              </p>
+              <ResponsiveContainer width="100%" height={120}>
+                <LineChart data={zoomedData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                  <XAxis dataKey="timestamp" hide />
+                  <YAxis hide />
+                  <Line type="monotone" dataKey="read" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="write" stroke="#d97706" strokeWidth={2} dot={false} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {open && (
+        <Dialog open onOpenChange={setOpen}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>I/O de disco do host (operações/s)</DialogTitle>
+            </DialogHeader>
+            <TimeRangeButtons value={range} onChange={setRange} />
+            {extended && extendedLoading ? (
+              <div className="text-muted-foreground flex h-[320px] items-center justify-center text-xs">
+                Carregando histórico...
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={zoomedData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                  <XAxis
+                    dataKey="timestamp"
+                    tickFormatter={formatClockTime}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    axisLine={{ stroke: "var(--border)" }}
+                    tickLine={false}
+                    minTickGap={40}
+                  />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} width={50} />
+                  <Tooltip
+                    labelFormatter={(t) => formatClockTime(Number(t))}
+                    formatter={(v, name) => [formatOps(Number(v)), name === "read" ? "Leitura" : "Escrita"]}
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--popover)",
+                    }}
+                  />
+                  <Legend
+                    formatter={(v) => (v === "read" ? "Leitura" : "Escrita")}
+                    wrapperStyle={{ fontSize: 12 }}
+                  />
+                  <Line type="monotone" dataKey="read" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="write" stroke="#d97706" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+            <p className="text-muted-foreground text-xs">
+              {extended
+                ? "Dado agregado por hora além das últimas 24h (média) — persistido, sobrevive a reinício do backend."
+                : "Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar."}{" "}
+              Operações completadas por segundo em /proc/diskstats do host (disco inteiro, não por
+              container/partição) — não bytes.
             </p>
           </DialogContent>
         </Dialog>

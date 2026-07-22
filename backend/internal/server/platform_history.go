@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/gest-postgres/backend/internal/docker"
 )
 
 type PlatformMetricPoint struct {
@@ -13,6 +15,12 @@ type PlatformMetricPoint struct {
 	DiskUsedBytes  int64     `json:"disk_used_bytes"`
 	NetworkRxBytes int64     `json:"network_rx_bytes"` // cumulativo, igual ao snapshot ao vivo
 	NetworkTxBytes int64     `json:"network_tx_bytes"`
+	// ReadOpsPerSec/WriteOpsPerSec vêm de /proc/diskstats do host (não soma
+	// de container) — operações completadas por segundo, não bytes. 0 na
+	// primeira amostra depois do backend subir (docker.HostIOPS precisa de
+	// duas leituras pra calcular taxa).
+	ReadOpsPerSec  float64 `json:"read_ops_per_sec"`
+	WriteOpsPerSec float64 `json:"write_ops_per_sec"`
 }
 
 // platformHistory guarda uma janela curta (~1h a 15s/amostra, igual ao
@@ -46,8 +54,13 @@ func (h *platformHistory) get() []PlatformMetricPoint {
 	return out
 }
 
-func (s *Service) GetPlatformStatsHistory() []PlatformMetricPoint {
-	return s.platformHistory.get()
+// GetPlatformStatsHistory é o equivalente pro agregado da plataforma, mesmo
+// raciocínio de GetMetricsHistory.
+func (s *Service) GetPlatformStatsHistory(ctx context.Context, rangeDur time.Duration) ([]PlatformMetricPoint, error) {
+	if rangeDur <= metricHistoryFromDBWindow {
+		return s.platformHistory.get(), nil
+	}
+	return s.getPlatformMetricHistoryDB(ctx, time.Now().Add(-rangeDur))
 }
 
 // RunPlatformHistoryCollector roda em background (chamado uma vez no main),
@@ -65,14 +78,25 @@ func (s *Service) RunPlatformHistoryCollector(ctx context.Context, interval time
 			if err != nil {
 				continue
 			}
-			s.platformHistory.append(PlatformMetricPoint{
+			point := PlatformMetricPoint{
 				Timestamp:      time.Now(),
 				CPUPercent:     stats.TotalCPUPercent,
 				MemoryUsedMB:   stats.TotalMemoryUsedMB,
 				DiskUsedBytes:  stats.DiskUsedBytes,
 				NetworkRxBytes: stats.NetworkRxBytesTotal,
 				NetworkTxBytes: stats.NetworkTxBytesTotal,
-			})
+			}
+			// Mesmo tick que já mede tudo o resto — HostIOPS precisa de
+			// leitura periódica regular pra calcular taxa por delta (ver
+			// docker/hostiops.go), erro na primeira chamada é esperado.
+			if readOps, writeOps, err := docker.HostIOPS(); err == nil {
+				point.ReadOpsPerSec = readOps
+				point.WriteOpsPerSec = writeOps
+			}
+			s.platformHistory.append(point)
+			// Best-effort, mesmo raciocínio de recordServerMetricRaw —
+			// sobrevive a reinício do backend.
+			s.recordPlatformMetricRaw(ctx, point, stats.TotalMemoryLimitMB)
 		}
 	}
 }

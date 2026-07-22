@@ -78,6 +78,7 @@ func run() error {
 	go serverService.RunAlertSweep(ctx, 1*time.Minute)
 	go serverService.RunPlatformHistoryCollector(ctx, 15*time.Second)
 	go serverService.RunBackupSweep(ctx, 1*time.Minute)
+	go serverService.RunMetricRollup(ctx)
 
 	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
 	go infraService.RunCronSweep(ctx, 1*time.Minute)

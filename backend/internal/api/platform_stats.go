@@ -25,5 +25,11 @@ func (h *PlatformHandler) Stats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PlatformHandler) StatsHistory(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, http.StatusOK, h.service.GetPlatformStatsHistory())
+	rangeDur := server.ParseHistoryRange(r.URL.Query().Get("range"))
+	points, err := h.service.GetPlatformStatsHistory(r.Context(), rangeDur)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, points)
 }

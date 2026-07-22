@@ -135,6 +135,10 @@ services:
       # únicos e read-only do /proc real do host, nunca o /proc inteiro.
       - /proc/meminfo:/hostmem:ro
       - /proc/stat:/hostcpu:ro
+      # Gráfico de I/O do host em operações/segundo (não bytes) — pedido
+      # explícito comparando com Zabbix noutro servidor. Mesmo raciocínio
+      # dos dois mounts acima.
+      - /proc/diskstats:/hostdiskstats:ro
       # Raiz do gerenciador de arquivos do host (aba "Arquivos do host") —
       # read-write de propósito, mas NUNCA a raiz inteira do filesystem:
       # HOST_FILES_ROOT é uma pasta configurável (default /srv/gestpg-files),

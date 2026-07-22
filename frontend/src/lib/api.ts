@@ -378,6 +378,8 @@ export interface PlatformMetricPoint {
   disk_used_bytes: number;
   network_rx_bytes: number;
   network_tx_bytes: number;
+  read_ops_per_sec: number;
+  write_ops_per_sec: number;
 }
 
 export interface DiscoveredContainer {
@@ -1009,7 +1011,10 @@ export const api = {
 
   platformStats: () => request<PlatformStats>(`/api/v1/platform-stats`),
 
-  platformStatsHistory: () => request<PlatformMetricPoint[]>(`/api/v1/platform-stats-history`),
+  platformStatsHistory: (range?: string) =>
+    request<PlatformMetricPoint[]>(
+      `/api/v1/platform-stats-history${range ? `?range=${range}` : ""}`
+    ),
 
   discover: () => request<DiscoveredContainer[]>(`/api/v1/discover`),
 
@@ -1096,7 +1101,8 @@ export const api = {
 
   databaseSizes: (id: string) => request<DatabaseSize[]>(`/api/v1/servers/${id}/database-sizes`),
 
-  metricsHistory: (id: string) => request<MetricPoint[]>(`/api/v1/servers/${id}/metrics-history`),
+  metricsHistory: (id: string, range?: string) =>
+    request<MetricPoint[]>(`/api/v1/servers/${id}/metrics-history${range ? `?range=${range}` : ""}`),
 
   listTables: (id: string, database: string) =>
     request<TableInfo[]>(`/api/v1/servers/${id}/tables?database=${encodeURIComponent(database)}`),

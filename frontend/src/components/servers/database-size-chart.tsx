@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Line,
   LineChart,
@@ -13,8 +14,8 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { TimeRangeButtons, filterByRange } from "./timerange-buttons";
-import type { MetricPoint } from "@/lib/api";
+import { api, type MetricPoint } from "@/lib/api";
+import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, type RangeKey } from "./timerange-buttons";
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -124,19 +125,31 @@ function PerDatabaseChart({
   field,
   formatValue,
   note,
+  serverId,
 }: {
   history: MetricPoint[];
   title: string;
   field: (p: MetricPoint) => ByDatabase;
   formatValue: (v: number) => string;
   note: string;
+  serverId?: string;
 }) {
   const names = useMemo(() => databaseNames(history, field), [history, field]);
   const hasData = history.length >= 2 && names.length > 0;
   const [open, setOpen] = useState(false);
-  const [rangeMs, setRangeMs] = useState(Infinity);
+  const [range, setRange] = useState<RangeKey>("1h");
+  const extended = isBackendRange(range);
 
-  const zoomedData = filterByRange(history, rangeMs, (p) => new Date(p.timestamp).getTime());
+  const { data: extendedHistory, isFetching: extendedLoading } = useQuery({
+    queryKey: ["servers", serverId, "metrics-history", range],
+    queryFn: () => api.metricsHistory(serverId!, range),
+    enabled: open && extended && !!serverId,
+  });
+
+  const zoomedData = extended
+    ? (extendedHistory ?? [])
+    : filterByRange(history, rangeMs(range), (p) => new Date(p.timestamp).getTime());
+  const zoomedNames = extended ? databaseNames(zoomedData, field) : names;
 
   return (
     <>
@@ -165,8 +178,19 @@ function PerDatabaseChart({
             <DialogHeader>
               <DialogTitle>{title}</DialogTitle>
             </DialogHeader>
-            <TimeRangeButtons value={rangeMs} onChange={setRangeMs} />
-            <Chart data={zoomedData} names={names} height={340} field={field} formatValue={formatValue} />
+            <TimeRangeButtons value={range} onChange={setRange} />
+            {extended && extendedLoading ? (
+              <div className="text-muted-foreground flex h-[340px] items-center justify-center text-xs">
+                Carregando histórico...
+              </div>
+            ) : extended && zoomedNames.length === 0 ? (
+              <div className="text-muted-foreground flex h-[340px] items-center justify-center text-xs">
+                Sem detalhe por banco além das últimas 24h — o resumo por hora guarda só o
+                agregado, não a quebra por banco.
+              </div>
+            ) : (
+              <Chart data={zoomedData} names={zoomedNames} height={340} field={field} formatValue={formatValue} />
+            )}
             <p className="text-muted-foreground text-xs">{note}</p>
           </DialogContent>
         </Dialog>
@@ -180,10 +204,11 @@ function PerDatabaseChart({
 // individual (shared_buffers é um pool só, compartilhado pelo cluster
 // inteiro), então tamanho em disco (pg_database_size) é o proxy real mais
 // próximo de "uso de recurso por banco" que dá pra medir.
-export function DatabaseSizeChart({ history }: { history: MetricPoint[] }) {
+export function DatabaseSizeChart({ history, serverId }: { history: MetricPoint[]; serverId?: string }) {
   return (
     <PerDatabaseChart
       history={history}
+      serverId={serverId}
       title="Disco por banco"
       field={(p) => p.database_sizes_mb}
       formatValue={formatMB}
@@ -195,10 +220,17 @@ export function DatabaseSizeChart({ history }: { history: MetricPoint[] }) {
 // ConnectionsPerDatabaseChart abre o total de "Conexões" (gráfico agregado
 // ao lado) por banco — pg_stat_activity tem coluna datname, então essa
 // quebra é dado real (não um proxy como o disco acima).
-export function ConnectionsPerDatabaseChart({ history }: { history: MetricPoint[] }) {
+export function ConnectionsPerDatabaseChart({
+  history,
+  serverId,
+}: {
+  history: MetricPoint[];
+  serverId?: string;
+}) {
   return (
     <PerDatabaseChart
       history={history}
+      serverId={serverId}
       title="Conexões por banco"
       field={(p) => p.connections_by_database}
       formatValue={formatCount}

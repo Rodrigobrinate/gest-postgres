@@ -181,6 +181,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           dataKey="cpu_percent"
           color="#2563eb"
           unit="%"
+          serverId={serverId}
         />
         <MetricChart
           title="Memória"
@@ -188,6 +189,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           dataKey="memory_used_mb"
           color="#7c3aed"
           formatValue={(v) => `${v.toFixed(0)} MB`}
+          serverId={serverId}
         />
         <MetricChart
           title="Conexões"
@@ -195,6 +197,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           dataKey="connection_count"
           color="#0891b2"
           formatValue={(v) => String(Math.round(v))}
+          serverId={serverId}
         />
         <MetricChart
           title="Disco"
@@ -202,6 +205,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           dataKey="disk_used_mb"
           color="#d97706"
           formatValue={(v) => formatBytes(v * 1024 * 1024)}
+          serverId={serverId}
         />
       </div>
 
@@ -311,8 +315,8 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <DatabaseSizeChart history={history ?? []} />
-        <ConnectionsPerDatabaseChart history={history ?? []} />
+        <DatabaseSizeChart history={history ?? []} serverId={serverId} />
+        <ConnectionsPerDatabaseChart history={history ?? []} serverId={serverId} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

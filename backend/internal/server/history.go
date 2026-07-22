@@ -61,8 +61,16 @@ func (h *HistoryCollector) forget(serverID string) {
 	delete(h.points, serverID)
 }
 
-func (s *Service) GetMetricsHistory(id string) []MetricPoint {
-	return s.history.get(id)
+// GetMetricsHistory devolve o histórico de um servidor. rangeDur <= 1h usa
+// só o buffer em memória (rápido, sem round-trip no banco — cobre a última
+// ~1h, que é tudo que esse buffer já guardava antes de metric_history
+// existir). rangeDur maior consulta metric_history (raw + hourly, ver
+// metric_query.go), que sobrevive a reinício do backend.
+func (s *Service) GetMetricsHistory(ctx context.Context, id string, rangeDur time.Duration) ([]MetricPoint, error) {
+	if rangeDur <= metricHistoryFromDBWindow {
+		return s.history.get(id), nil
+	}
+	return s.getServerMetricHistoryDB(ctx, id, time.Now().Add(-rangeDur))
 }
 
 // RunMetricsCollector roda em background (chamado uma vez no main) amostrando
@@ -120,7 +128,7 @@ func (s *Service) collectMetricsOnce(ctx context.Context) {
 			diskMB += mb
 		}
 
-		s.history.append(record.ID, MetricPoint{
+		point := MetricPoint{
 			Timestamp:             now,
 			CPUPercent:            stats.CPUPercent,
 			MemoryUsedMB:          stats.MemoryUsedMB,
@@ -128,7 +136,13 @@ func (s *Service) collectMetricsOnce(ctx context.Context) {
 			DiskUsedMB:            diskMB,
 			DatabaseSizesMB:       dbSizes,
 			ConnectionsByDatabase: connsByDB,
-		})
+		}
+		s.history.append(record.ID, point)
+		// Grava no banco de metadados além de memória — sobrevive a
+		// reinício do backend (update, restart, deploy). Best-effort: uma
+		// falha de escrita aqui não pode derrubar a coleta em memória, que
+		// alimenta o dashboard ao vivo.
+		s.recordServerMetricRaw(ctx, record.ID, point)
 	}
 }
 

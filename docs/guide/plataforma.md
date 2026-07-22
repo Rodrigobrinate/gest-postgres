@@ -29,15 +29,25 @@ Por **IP** (não por username, pra não deixar um atacante trancar o admin de ve
 
 ## Dashboard principal
 
-4 cards estilo EasyPanel — número grande + sparkline colorido embaixo (histórico curto em memória, ~1h a 15s/amostra) pra **CPU / memória / disco / rede**. Valores ao vivo (CPU/memória) ficam vermelhos se subiram e verdes se desceram desde o poll anterior (igual ticker de mercado).
+4 cards estilo EasyPanel — número grande + sparkline colorido embaixo pra **CPU / memória / disco / rede** — mais um card de **I/O de disco em operações/segundo** (leitura e escrita, duas linhas) logo abaixo. Valores ao vivo (CPU/memória) ficam vermelhos se subiram e verdes se desceram desde o poll anterior (igual ticker de mercado).
 
 Abaixo, **tabela por container**: CPU, memória, peso do container, I/O de disco, rede.
 
 ### Origem dos números
 
-- **Rede / I/O** — soma dos containers Docker (sem acesso ao host além da API Docker pra esses — não tem um jeito simples de medir rede/I/O do host inteiro via `/proc`, e contadores acumulados por container já dão um número honesto).
-- **Disco** — número real do **host** (total/usado/livre), via `statfs` num mount read-only de um único arquivo (`/etc/hostname`, não o diretório `/etc` inteiro) dentro do container do backend. "Usado"/"total" seguem a mesma convenção do `df`: a reserva do ext4 pra root (tipicamente 5% do filesystem) não conta nem como usado nem como livre — contá-la como "usado" (bug corrigido depois de comparar com o EasyPanel no mesmo host) inflava o percentual sem uso real nenhum acontecendo.
+- **Rede / I/O por container** — soma dos containers Docker (sem acesso ao host além da API Docker pra esses — não tem um jeito simples de medir rede/I/O do host inteiro por container via `/proc`, e contadores acumulados por container já dão um número honesto).
+- **Disco (uso)** — número real do **host** (total/usado/livre), via `statfs` num mount read-only de um único arquivo (`/etc/hostname`, não o diretório `/etc` inteiro) dentro do container do backend. "Usado"/"total" seguem a mesma convenção do `df`: a reserva do ext4 pra root (tipicamente 5% do filesystem) não conta nem como usado nem como livre — contá-la como "usado" (bug corrigido depois de comparar com o EasyPanel no mesmo host) inflava o percentual sem uso real nenhum acontecendo.
 - **Memória (total e usada)** e **CPU** — número real do **host**, não soma de container. `/proc/meminfo` (mount `/hostmem`) pra memória, `MemAvailable` (não `MemFree` — senão cache de página conta como "uso" e infla o número) pro cálculo de usado. `/proc/stat` (mount `/hostcpu`) pra CPU — precisa de duas leituras pra calcular %, então a primeira chamada depois do backend subir cai pro fallback de soma de container só naquela vez. Motivo de existir: soma de container nunca inclui o que roda fora de cgroup Docker (kernel, `dockerd`, sshd, cron, o `firewall-agent`/`update-agent` que rodam no host de propósito) — corrigido depois de comparar ao vivo com o EasyPanel no mesmo host e ver CPU 0.2% vs 25%, memória 8% vs 39%.
+- **I/O de disco em operações/segundo** — número real do **host**, `/proc/diskstats` (mount `/hostdiskstats`), soma só dos dispositivos de disco inteiro (`vda`, `sda`, `nvme0n1`, etc — nunca partição, que contaria a mesma operação duas vezes). Pedido explícito comparando com um painel Zabbix noutro servidor: operações completadas por segundo, não bytes (bytes já aparecem na tabela por container). Igual CPU, precisa de duas leituras pra virar taxa.
+
+### Histórico persistido (sobrevive a restart/update)
+
+CPU/memória/disco/rede/I/O do dashboard e CPU/memória/conexões/disco de cada servidor são gravados no banco de metadados a cada amostra (~15s), não só em memória — antes, qualquer reinício do backend (update, restart manual, deploy) zerava o histórico inteiro. Duas resoluções:
+
+- **Raw** — uma linha por amostra, só as últimas 24h.
+- **Hourly** — uma linha por hora (média/mínimo/máximo), gerada por um job de rollup em background a partir do raw mais velho que 24h (que é apagado depois de agregado). Guarda mínimo/máximo, não só média, de propósito — média sozinha esconderia um pico pontual que aconteceu dentro daquela hora. Retenção de 180 dias no hourly.
+
+Os modais de zoom dos gráficos (clique pra ampliar) ganharam períodos **24h / 7 dias / 30 dias** além dos de sempre (5min/15min/30min/tudo em memória) — os novos buscam do banco de metadados; os de sempre continuam só recortando o buffer em memória, sem ir no banco. Breakdown por banco (gráficos "Disco por banco"/"Conexões por banco") só existe no raw — o resumo horário guarda só o agregado do servidor inteiro, não a quebra por banco.
 
 ### Peso do container
 
