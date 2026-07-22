@@ -1,12 +1,30 @@
+# Subnet FIXA nas duas redes — achado em produção: sem isso, Docker aloca do
+# pool default (172.17-172.31.0.0/16) e pode colidir com qualquer coisa que
+# já exista no host usando essa faixa (derrubou o Zabbix de um usuário real,
+# que tinha rota própria em 172.20.1.0/24 — Docker roubou justamente essa
+# sub-rede pra rede gestpg-managed). 10.77.0.0/16 é fora do pool default do
+# Docker e fora das faixas mais comuns de VPN/LAN (192.168.0.0/16,
+# 172.16.0.0/12, 10.0.0.0/16-10.10.0.0/16) — ainda assim, configurável via
+# .env (GESTPG_INTERNAL_SUBNET/GESTPG_MANAGED_SUBNET) se colidir com algo
+# nesse host específico. setup.sh confere ANTES de subir que a faixa não tá
+# em uso (ip route) e aborta se estiver — nunca mais silencioso.
 networks:
   gestpg-internal:
     name: gestpg-internal
+    ipam:
+      config:
+        - subnet: ${GESTPG_INTERNAL_SUBNET:-10.77.0.0/24}
   # Rede onde os containers Postgres GERENCIADOS (criados via UI) são conectados.
   # Declarada aqui pra existir antes do backend subir; o backend também checa/cria
   # via Docker API (internal/docker Client.EnsureNetwork) então isso é redundante
-  # de propósito — só evita corrida na primeira subida do stack.
+  # de propósito — só evita corrida na primeira subida do stack. Subnet maior
+  # (/20, 4096 endereços) porque pode crescer bastante — cada servidor
+  # Postgres gerenciado ganha um IP aqui.
   gestpg-managed:
     name: gestpg-managed
+    ipam:
+      config:
+        - subnet: ${GESTPG_MANAGED_SUBNET:-10.77.16.0/20}
 
 volumes:
   metadata_db_data:
@@ -109,6 +127,10 @@ services:
       METADATA_DATABASE_URL: postgres://${METADATA_DB_USER}:${METADATA_DB_PASSWORD}@metadata-db:5432/${METADATA_DB_NAME}?sslmode=disable
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       MANAGED_NETWORK_NAME: gestpg-managed
+      # Mesmo valor do ipam.config.subnet da rede gestpg-managed acima —
+      # EnsureNetwork (fallback de corrida, internal/docker/client.go) usa
+      # isso pra nunca deixar o Docker escolher subnet sozinho.
+      MANAGED_NETWORK_SUBNET: ${GESTPG_MANAGED_SUBNET:-10.77.16.0/20}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
       # Faltava essa linha — sem ela o backend nunca via ADMIN_PASSWORD do
       # .env e sempre caía no fallback de gerar senha aleatória sozinho

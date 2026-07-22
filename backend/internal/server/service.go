@@ -31,11 +31,12 @@ type Service struct {
 	platformHistory *platformHistory
 
 	networkName    string
+	networkSubnet  string
 	portRangeStart int
 	portRangeEnd   int
 }
 
-func NewService(repo *Repo, dockerClient *docker.Client, secretBox *crypto.SecretBox, networkName string, portRangeStart, portRangeEnd int) *Service {
+func NewService(repo *Repo, dockerClient *docker.Client, secretBox *crypto.SecretBox, networkName, networkSubnet string, portRangeStart, portRangeEnd int) *Service {
 	return &Service{
 		repo:            repo,
 		docker:          dockerClient,
@@ -43,6 +44,7 @@ func NewService(repo *Repo, dockerClient *docker.Client, secretBox *crypto.Secre
 		history:         NewHistoryCollector(240), // ~1h a 15s/amostra
 		platformHistory: newPlatformHistory(240),
 		networkName:     networkName,
+		networkSubnet:   networkSubnet,
 		portRangeStart:  portRangeStart,
 		portRangeEnd:    portRangeEnd,
 	}
@@ -128,7 +130,7 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 	// de propósito, só de pull/inspect).
 	image := "gestpg-postgres:" + record.Version
 
-	if err := s.docker.EnsureNetwork(ctx, s.networkName); err != nil {
+	if err := s.docker.EnsureNetwork(ctx, s.networkName, s.networkSubnet); err != nil {
 		s.markError(ctx, serverID)
 		return
 	}

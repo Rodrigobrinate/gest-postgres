@@ -70,6 +70,7 @@ func run() error {
 		dockerClient,
 		secretBox,
 		cfg.ManagedNetworkName,
+		cfg.ManagedNetworkSubnet,
 		cfg.ManagedPortRangeStart,
 		cfg.ManagedPortRangeEnd,
 	)

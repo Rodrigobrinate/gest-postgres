@@ -64,6 +64,18 @@ type Config struct {
 	// canal de confiança que ADMIN_PASSWORD já usa.
 	CloudflareTunnelToken string
 	IntegrationKeySeed    string
+
+	// ManagedNetworkSubnet fixa a sub-rede da rede gestpg-managed (CIDR,
+	// ex: "10.77.16.0/20") — usado em TODA criação dessa rede, inclusive o
+	// fallback de corrida em EnsureNetwork (server/service.go), nunca deixa
+	// o Docker escolher sozinho. Achado em produção: sem subnet fixa, Docker
+	// aloca do pool default (172.17-172.31.0.0/16) e pode colidir com
+	// QUALQUER outra coisa no host usando essa faixa (uma instalação real
+	// derrubou o Zabbix do usuário assim — rede Docker roubou a rota que o
+	// Zabbix precisava pra 172.20.1.0/24). docker-compose.yml já fixa isso
+	// via IPAM na declaração da rede; essa env var existe só pra manter
+	// EnsureNetwork em sincronia com o mesmo valor, nunca usar outro.
+	ManagedNetworkSubnet string
 }
 
 func Load() (*Config, error) {
@@ -72,6 +84,7 @@ func Load() (*Config, error) {
 		MetadataDatabaseURL:     getEnv("METADATA_DATABASE_URL", ""),
 		DockerHost:              getEnv("DOCKER_HOST", "tcp://docker-socket-proxy:2375"),
 		ManagedNetworkName:      getEnv("MANAGED_NETWORK_NAME", "gestpg-managed"),
+		ManagedNetworkSubnet:    getEnv("MANAGED_NETWORK_SUBNET", "10.77.16.0/20"),
 		CredentialEncryptionKey: getEnv("CREDENTIAL_ENCRYPTION_KEY", ""),
 		ManagedPortRangeStart:   55432,
 		ManagedPortRangeEnd:     56432,

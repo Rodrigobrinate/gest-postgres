@@ -40,8 +40,20 @@ func (c *Client) Close() error {
 	return c.cli.Close()
 }
 
-// EnsureNetwork garante que a rede compartilhada dos servidores gerenciados existe.
-func (c *Client) EnsureNetwork(ctx context.Context, name string) error {
+// EnsureNetwork garante que a rede compartilhada dos servidores gerenciados
+// existe. subnet é OBRIGATÓRIA (CIDR, ex: "10.77.16.0/20") — nunca deixa o
+// Docker escolher sozinho do pool default. Achado em produção: sem subnet
+// fixa aqui (fallback de corrida da primeira subida, docker-compose.yml já
+// cobre o caminho normal), Docker aloca do pool 172.17-172.31.0.0/16 e pode
+// colidir com qualquer coisa no host já usando essa faixa — já derrubou o
+// Zabbix de um usuário assim. Esse caminho normalmente é redundante (a rede
+// já existe, criada pelo compose com subnet fixa antes do backend subir),
+// mas se algum dia rodar de verdade (rede removida manualmente, por
+// exemplo), precisa da MESMA garantia.
+func (c *Client) EnsureNetwork(ctx context.Context, name, subnet string) error {
+	if subnet == "" {
+		return fmt.Errorf("subnet obrigatória pra criar rede %s — nunca deixa o Docker escolher sozinho", name)
+	}
 	nets, err := c.cli.NetworkList(ctx, types.NetworkListOptions{
 		Filters: filters.NewArgs(filters.Arg("name", name)),
 	})
@@ -57,6 +69,9 @@ func (c *Client) EnsureNetwork(ctx context.Context, name string) error {
 		Driver: "bridge",
 		Options: map[string]string{
 			"com.docker.network.bridge.enable_icc": "true",
+		},
+		IPAM: &network.IPAM{
+			Config: []network.IPAMConfig{{Subnet: subnet}},
 		},
 	})
 	if err != nil {

@@ -202,6 +202,54 @@ chmod 600 .env
 CLOUD_MODE_VALUE="$(grep -m1 '^CLOUD_MODE=' .env 2>/dev/null | cut -d= -f2-)"
 CLOUD_MODE_VALUE="${CLOUD_MODE_VALUE:-0}"
 
+# ---------- 4.2. sub-rede fixa (migração de .env de instalação antiga) ----------
+# .env de instalação de antes dessa versão não tem essas 2 variáveis — sem
+# isso, docker-compose.yml caía no default (${VAR:-10.77...}) mesmo assim,
+# mas grava explícito no .env pra ficar visível/editável, e pra o preflight
+# check abaixo ler o mesmo valor que o compose vai usar.
+grep -q '^GESTPG_INTERNAL_SUBNET=' .env || echo "GESTPG_INTERNAL_SUBNET=10.77.0.0/24" >> .env
+grep -q '^GESTPG_MANAGED_SUBNET=' .env || echo "GESTPG_MANAGED_SUBNET=10.77.16.0/20" >> .env
+
+GESTPG_INTERNAL_SUBNET_VALUE="$(grep -m1 '^GESTPG_INTERNAL_SUBNET=' .env | cut -d= -f2-)"
+GESTPG_MANAGED_SUBNET_VALUE="$(grep -m1 '^GESTPG_MANAGED_SUBNET=' .env | cut -d= -f2-)"
+
+# check_subnet_free: manda um IP de teste dentro da faixa pro `ip route
+# get` do kernel e compara a interface que ele escolheu com a interface da
+# rota DEFAULT. Se bater com a default, ninguém reivindica aquele endereço
+# especificamente ainda (livre). Se vier diferente, alguma rota mais
+# específica já existe pra aquele espaço — colisão.
+#
+# Achado em produção, motivo dessa checagem existir: sem subnet fixa nem
+# checagem, Docker alocou do pool default (172.17-172.31.0.0/16) bem em cima
+# da faixa 172.20.1.0/24 que o Zabbix de um usuário real já usava pra
+# alcançar o que monitorava — derrubou a coleta inteira, silenciosamente,
+# só descoberto porque o Zabbix parou de reportar. Subnet fixa (10.77.0.0/16
+# por padrão, longe do pool do Docker e das faixas mais comuns de VPN/LAN)
+# reduz a chance, mas só ISSO não é garantia nenhuma nesse host específico —
+# essa checagem que é a garantia: aborta em vez de seguir silencioso.
+check_subnet_free() {
+	local subnet="$1"
+	local base="${subnet%%/*}"
+	local probe_ip
+	probe_ip="$(echo "$base" | awk -F. '{print $1"."$2"."$3"."($4+1)}')"
+	local probe_dev default_dev
+	probe_dev="$(ip route get "$probe_ip" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
+	default_dev="$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}')"
+	[[ -z "$probe_dev" || "$probe_dev" == "$default_dev" ]]
+}
+
+if command -v ip >/dev/null 2>&1; then
+	log "conferindo se as sub-redes do docker-compose já não estão em uso no host"
+	for subnet in "$GESTPG_INTERNAL_SUBNET_VALUE" "$GESTPG_MANAGED_SUBNET_VALUE"; do
+		if ! check_subnet_free "$subnet"; then
+			die "sub-rede $subnet já parece estar em uso nesse host (rota específica encontrada, diferente da rota default) — troca GESTPG_INTERNAL_SUBNET/GESTPG_MANAGED_SUBNET no .env pra uma faixa livre antes de continuar. Isso já derrubou serviço de monitoramento de um usuário — NUNCA sobe com uma faixa que colide"
+		fi
+	done
+	ok "sub-redes $GESTPG_INTERNAL_SUBNET_VALUE e $GESTPG_MANAGED_SUBNET_VALUE livres nesse host"
+else
+	warn "comando 'ip' não encontrado — não consegui checar colisão de sub-rede, seguindo mesmo assim (raro nesse tipo de host)"
+fi
+
 # ---------- 4.5. pasta do gerenciador de arquivos do host ----------
 # HOST_FILES_ROOT é a raiz (fora do container) que a aba "Arquivos do host"
 # expõe — precisa existir ANTES do `docker compose up`, senão o Docker cria
