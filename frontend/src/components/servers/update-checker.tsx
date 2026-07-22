@@ -37,7 +37,7 @@ export function UpdateChecker() {
     return () => clearTimeout(timer);
   }, [elevated]);
 
-  const { data, isLoading, isFetching, refetch, isError } = useQuery({
+  const { data, isLoading, isFetching, refetch, isError, error } = useQuery({
     queryKey: ["update-check"],
     queryFn: () => api.checkUpdate(),
     enabled: open,
@@ -103,10 +103,20 @@ export function UpdateChecker() {
         {isLoading ? (
           <p className="text-muted-foreground text-sm">Verificando...</p>
         ) : isError ? (
-          <p className="text-sm text-red-600">
-            Não consegui checar — falha alcançando o GitHub. Confere a conexão do servidor com a
-            internet.
-          </p>
+          <div className="flex flex-col gap-1">
+            <p className="text-sm text-red-600">Não consegui checar atualização.</p>
+            <p className="text-muted-foreground text-xs">
+              {error instanceof ApiError
+                ? error.message
+                : "Falha alcançando o backend — confere se ele está rodando."}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Motivo mais comum com conexão OK: a checagem usa a API pública do GitHub sem token
+              (60 requisições/hora por IP) — se o IP do servidor já bateu esse limite, toda
+              checagem falha por um tempo. Confirma direto no host:{" "}
+              <code className="font-mono">curl -s https://api.github.com/rate_limit</code>
+            </p>
+          </div>
         ) : data?.unknown ? (
           <p className="text-muted-foreground text-sm">
             Esse binário foi buildado sem informação de commit (build manual, fora do{" "}

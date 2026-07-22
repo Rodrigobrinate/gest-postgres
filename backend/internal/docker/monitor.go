@@ -143,8 +143,9 @@ func (c *Client) ContainerStats(ctx context.Context, containerID string) (Contai
 	// cgroup v1 usa "Read"/"Write" (maiúsculo), cgroup v2 usa "read"/"write"
 	// minúsculo — o Docker não normaliza isso na API, então compara
 	// case-insensitive. io_serviced_recursive (contagem de ops, não bytes)
-	// vem null em host cgroup v2 — não tem como evitar, o kernel não expõe
-	// mais essa métrica por esse caminho.
+	// vem null em host cgroup v2 — não tem como evitar via essa API, o
+	// kernel não expõe mais essa métrica por esse caminho (mas ainda expõe
+	// via cgroupfs direto, ver fallback abaixo).
 	var readBytes, writeBytes uint64
 	for _, e := range raw.BlkioStats.IoServiceBytesRecursive {
 		switch strings.ToLower(e.Op) {
@@ -161,6 +162,15 @@ func (c *Client) ContainerStats(ctx context.Context, containerID string) (Contai
 			readOps += e.Value
 		case "write":
 			writeOps += e.Value
+		}
+	}
+	// Fallback pra host cgroup v2: a API de stats não traz ops, mas o
+	// kernel ainda expõe via /sys/fs/cgroup/.../io.stat — ver
+	// hostcgroup.go pro racional completo (caminho varia por driver de
+	// cgroup, não testado ao vivo ainda).
+	if readOps == 0 && writeOps == 0 {
+		if r, w, ok := containerIOStatOps(containerID); ok {
+			readOps, writeOps = r, w
 		}
 	}
 

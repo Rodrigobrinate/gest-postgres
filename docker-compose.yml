@@ -139,6 +139,15 @@ services:
       # explícito comparando com Zabbix noutro servidor. Mesmo raciocínio
       # dos dois mounts acima.
       - /proc/diskstats:/hostdiskstats:ro
+      # Operação de I/O por CONTAINER (não host inteiro) — só como fallback
+      # quando a API de stats do Docker devolve 0 (host cgroup v2, ver
+      # docker/hostcgroup.go). Diferente dos mounts de arquivo único acima,
+      # esse é o cgroupfs inteiro (read-only) — não dá pra montar só o
+      # subdiretório de um container específico de antemão, o caminho
+      # inclui o ID do container, que só existe depois de criado. NÃO
+      # TESTADO AO VIVO ainda — caminho exato varia por driver de cgroup do
+      # Docker (systemd vs cgroupfs), pode não funcionar dependendo do host.
+      - /sys/fs/cgroup:/hostcgroup:ro
       # Raiz do gerenciador de arquivos do host (aba "Arquivos do host") —
       # read-write de propósito, mas NUNCA a raiz inteira do filesystem:
       # HOST_FILES_ROOT é uma pasta configurável (default /srv/gestpg-files),

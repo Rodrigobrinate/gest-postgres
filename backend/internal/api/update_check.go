@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,12 +67,28 @@ func CheckUpdate(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		httpx.WriteError(w, http.StatusBadGateway, "não consegui alcançar o GitHub pra checar atualização")
+		httpx.WriteError(w, http.StatusBadGateway, fmt.Sprintf("não consegui alcançar o GitHub pra checar atualização: %v", err))
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		httpx.WriteError(w, http.StatusBadGateway, "GitHub respondeu status inesperado checando atualização")
+		// 403 com X-RateLimit-Remaining: 0 é o caso mais comum de "conexão
+		// ok mas checagem falha" — a API pública do GitHub sem token limita
+		// 60 requisições/hora POR IP (não por instalação), então um droplet
+		// que já gastou a cota (várias instalações atrás do mesmo IP, ou
+		// só cliques repetidos em "verificar de novo") passa a falhar até a
+		// janela resetar, mesmo com internet perfeita.
+		msg := fmt.Sprintf("GitHub respondeu status %d checando atualização", resp.StatusCode)
+		if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+			reset := resp.Header.Get("X-RateLimit-Reset")
+			msg = "limite de requisições da API pública do GitHub esgotado pra esse IP (60/hora, sem token) — tenta de novo mais tarde"
+			if reset != "" {
+				if unixSec, err := strconv.ParseInt(reset, 10, 64); err == nil {
+					msg += fmt.Sprintf(" (reseta às %s UTC)", time.Unix(unixSec, 0).UTC().Format("15:04"))
+				}
+			}
+		}
+		httpx.WriteError(w, http.StatusBadGateway, msg)
 		return
 	}
 
