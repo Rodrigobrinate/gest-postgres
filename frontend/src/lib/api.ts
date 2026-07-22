@@ -4,6 +4,24 @@ import { getCurrentServerId } from "@/lib/server-context";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:28080";
 
+// login/logout/me SEMPRE falam com o mestre, nunca com o backend de uma
+// instalação. Login/logout: não existe "logar dentro de um droplet" a
+// partir dessa UI (o Worker autentica com o droplet usando a chave de
+// integração, não sessão de usuário) — achado ao vivo, sem essa exceção uma
+// instalação selecionada de sessão anterior (persistida em localStorage)
+// fazia a PRÓPRIA tentativa de login virar `/proxy/{id}/api/v1/auth/login`,
+// nunca batendo no mestre. "me": achado ao vivo também — AuthGate usa
+// `/me` pra decidir se a sessão do MESTRE ainda é válida; com isso proxied,
+// o túnel de uma instalação caindo (ex: cloudflared fora do ar) fazia
+// `/me` falhar e o AuthGate concluir "sessão inválida", deslogando do
+// mestre inteiro por causa de UMA instalação inalcançável — mesmo com a
+// sessão do mestre 100% válida. Também não faz sentido checar "role" por
+// instalação: o backend Go SEMPRE trata chamada via chave de integração
+// como admin (NewServiceSession hardcoda RoleAdmin, ver
+// internal/auth/integration_key.go no repo principal), então não existe
+// "role" diferente por instalação pra descobrir de qualquer forma.
+const NEVER_PROXY_PATHS = new Set(["/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/me"]);
+
 // apiPath prefixa `/proxy/{instalação selecionada}` só em MULTI_SERVER_MODE
 // (build pro Cloudflare Pages, atrás do Worker do sistema mestre) — build
 // normal (1 frontend por droplet, API_URL = backend direto) devolve o path
@@ -12,7 +30,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:2808
 // (ex: listar instalações) são chamadas nesse momento, nunca uma rota
 // /api/v1/* de backend.
 export function apiPath(path: string): string {
-  if (!MULTI_SERVER_MODE) return path;
+  if (!MULTI_SERVER_MODE || NEVER_PROXY_PATHS.has(path)) return path;
   const serverId = getCurrentServerId();
   return serverId ? `/proxy/${serverId}${path}` : path;
 }
