@@ -58,12 +58,20 @@ export function CreateInstallationDialog() {
     setResult(null);
   }
 
-  const setupCommand = result
-    ? `sudo ./setup.sh --cloud-token <TOKEN_DO_TUNEL> --integration-key ${result.integration_key}`
+  // Dois casos: servidor que nunca teve gest-postgres (precisa clonar o
+  // repo primeiro) vs servidor já existente (só precisa da versão mais nova
+  // do setup.sh — é ela que entende --cloud-token; um clone antigo sem essa
+  // flag falharia com "argumento desconhecido"). Mesmo comando de update já
+  // usado em todo o resto do projeto (git pull && sudo ./setup.sh), só com
+  // as flags novas grudadas.
+  const flags = result ? `--cloud-token <TOKEN_DO_TUNEL> --integration-key ${result.integration_key}` : "";
+  const newServerCommand = result
+    ? `git clone https://github.com/Rodrigobrinate/gest-postgres.git && cd gest-postgres && sudo ./setup.sh ${flags}`
     : "";
+  const existingServerCommand = result ? `git pull && sudo ./setup.sh ${flags}` : "";
 
-  function copyCommand() {
-    navigator.clipboard.writeText(setupCommand);
+  function copy(text: string) {
+    navigator.clipboard.writeText(text);
     toast.success("Comando copiado");
   }
 
@@ -85,20 +93,47 @@ export function CreateInstallationDialog() {
             <DialogHeader>
               <DialogTitle>Instalação cadastrada</DialogTitle>
               <DialogDescription>
-                Roda esse comando no droplet — a chave só aparece aqui, uma vez.
-                Ainda falta trocar <code>&lt;TOKEN_DO_TUNEL&gt;</code> pelo token
-                do Cloudflare Tunnel (Zero Trust &gt; Tunnels, criar um novo).
+                A chave só aparece aqui, uma vez. Ainda falta trocar{" "}
+                <code>&lt;TOKEN_DO_TUNEL&gt;</code> pelo token do Cloudflare Tunnel
+                (Zero Trust &gt; Tunnels, criar um novo).
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-2 py-4">
-              <Label>Comando</Label>
-              <div className="flex items-center gap-2">
-                <code className="bg-muted flex-1 overflow-x-auto rounded-md px-3 py-2 text-xs">
-                  {setupCommand}
-                </code>
-                <Button type="button" variant="outline" size="icon" onClick={copyCommand}>
-                  <Copy className="size-4" />
-                </Button>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Servidor novo (nunca teve gest-postgres)</Label>
+                <div className="flex items-center gap-2">
+                  <code className="bg-muted flex-1 overflow-x-auto rounded-md px-3 py-2 text-xs">
+                    {newServerCommand}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copy(newServerCommand)}
+                  >
+                    <Copy className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Servidor já existente (já rodava gest-postgres)</Label>
+                <div className="flex items-center gap-2">
+                  <code className="bg-muted flex-1 overflow-x-auto rounded-md px-3 py-2 text-xs">
+                    {existingServerCommand}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => copy(existingServerCommand)}
+                  >
+                    <Copy className="size-4" />
+                  </Button>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Roda dentro da pasta do repo já clonado — o `git pull` traz a
+                  versão do setup.sh que entende --cloud-token.
+                </p>
               </div>
             </div>
             <DialogFooter>
