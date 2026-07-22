@@ -19,7 +19,10 @@ import { Label } from "@/components/ui/label";
 import { masterApi, type CreateMasterServerResult } from "@/lib/master-api";
 import { Plus, Copy } from "lucide-react";
 
-const emptyForm = { name: "", tunnel_hostname: "" };
+// tunnel_token nunca vai pro backend do mestre (masterApi.createServer só
+// manda name/tunnel_hostname) — existe só pra montar o comando completo na
+// hora, o token do túnel não é dado que o mestre precise guardar.
+const emptyForm = { name: "", tunnel_hostname: "", tunnel_token: "" };
 
 // Cadastra uma instalação gest-postgres no mestre. A chave de integração é
 // GERADA AQUI (o mestre) — o usuário nunca digita uma, só leva o valor
@@ -33,7 +36,7 @@ export function CreateInstallationDialog() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () => masterApi.createServer(form),
+    mutationFn: () => masterApi.createServer({ name: form.name, tunnel_hostname: form.tunnel_hostname }),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["master-servers"] });
       setResult(created);
@@ -64,7 +67,8 @@ export function CreateInstallationDialog() {
   // flag falharia com "argumento desconhecido"). Mesmo comando de update já
   // usado em todo o resto do projeto (git pull && sudo ./setup.sh), só com
   // as flags novas grudadas.
-  const flags = result ? `--cloud-token <TOKEN_DO_TUNEL> --integration-key ${result.integration_key}` : "";
+  const tunnelToken = form.tunnel_token.trim() || "<TOKEN_DO_TUNEL>";
+  const flags = result ? `--cloud-token ${tunnelToken} --integration-key ${result.integration_key}` : "";
   const newServerCommand = result
     ? `git clone https://github.com/Rodrigobrinate/gest-postgres.git && cd gest-postgres && sudo ./setup.sh ${flags}`
     : "";
@@ -93,9 +97,15 @@ export function CreateInstallationDialog() {
             <DialogHeader>
               <DialogTitle>Instalação cadastrada</DialogTitle>
               <DialogDescription>
-                A chave só aparece aqui, uma vez. Ainda falta trocar{" "}
-                <code>&lt;TOKEN_DO_TUNEL&gt;</code> pelo token do Cloudflare Tunnel
-                (Zero Trust &gt; Tunnels, criar um novo).
+                A chave só aparece aqui, uma vez.{" "}
+                {form.tunnel_token.trim()
+                  ? "Comando já vem completo, só copiar e colar."
+                  : (
+                    <>
+                      Ainda falta trocar <code>&lt;TOKEN_DO_TUNEL&gt;</code> pelo
+                      token do Cloudflare Tunnel (Zero Trust &gt; Tunnels).
+                    </>
+                  )}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -171,6 +181,19 @@ export function CreateInstallationDialog() {
                   onChange={(e) => setForm({ ...form, tunnel_hostname: e.target.value })}
                   required
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="inst-token">Token do túnel (opcional)</Label>
+                <Input
+                  id="inst-token"
+                  placeholder="do Cloudflare Tunnel — Zero Trust > Tunnels"
+                  value={form.tunnel_token}
+                  onChange={(e) => setForm({ ...form, tunnel_token: e.target.value })}
+                />
+                <p className="text-muted-foreground text-xs">
+                  Não fica salvo em lugar nenhum, só entra no comando abaixo. Deixa
+                  em branco se ainda não tiver criado o túnel.
+                </p>
               </div>
             </div>
 
