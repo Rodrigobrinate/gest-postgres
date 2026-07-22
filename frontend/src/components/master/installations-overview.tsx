@@ -11,6 +11,42 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateInstallationDialog } from "./create-installation-dialog";
 import { EditInstallationDialog } from "./edit-installation-dialog";
 import { Database, Trash2 } from "lucide-react";
+import type { MasterServerStats } from "@/lib/master-api";
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+  return `${bytes} B`;
+}
+
+function StatsRow({ stats }: { stats: MasterServerStats }) {
+  const memPercent =
+    stats.total_memory_limit_mb && stats.total_memory_used_mb
+      ? Math.round((stats.total_memory_used_mb / stats.total_memory_limit_mb) * 100)
+      : undefined;
+  const diskPercent =
+    stats.disk_total_bytes && stats.disk_used_bytes
+      ? Math.round((stats.disk_used_bytes / stats.disk_total_bytes) * 100)
+      : undefined;
+  return (
+    <div className="text-muted-foreground grid grid-cols-3 gap-2 text-xs">
+      <div>
+        <div className="text-foreground font-medium">
+          {stats.total_cpu_percent !== undefined ? `${stats.total_cpu_percent.toFixed(1)}%` : "—"}
+        </div>
+        <div>CPU</div>
+      </div>
+      <div>
+        <div className="text-foreground font-medium">{memPercent !== undefined ? `${memPercent}%` : "—"}</div>
+        <div>Memória</div>
+      </div>
+      <div>
+        <div className="text-foreground font-medium">{diskPercent !== undefined ? `${diskPercent}%` : "—"}</div>
+        <div>Disco{stats.disk_total_bytes ? ` de ${formatBytes(stats.disk_total_bytes)}` : ""}</div>
+      </div>
+    </div>
+  );
+}
 
 // Tela inicial em MULTI_SERVER_MODE (hospedado no Cloudflare Pages, atrás
 // do Worker do sistema mestre) enquanto nenhuma instalação foi selecionada
@@ -91,8 +127,9 @@ export function InstallationsOverview() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-1">
+            <CardContent className="space-y-3">
               <p className="text-muted-foreground truncate font-mono text-xs">{s.tunnel_hostname}</p>
+              {s.online && s.stats && <StatsRow stats={s.stats} />}
               {s.version && <p className="text-muted-foreground text-sm">versão {s.version}</p>}
             </CardContent>
           </Card>
