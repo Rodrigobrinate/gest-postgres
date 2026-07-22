@@ -61,6 +61,12 @@ export function InstallationsOverview() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["master-servers"],
     queryFn: masterApi.listServers,
+    // Explícito mesmo já sendo o default global (providers.tsx) — cada
+    // busca dispara uma checagem AO VIVO em toda instalação (ver
+    // listInstallations no Worker), então esse intervalo é o que decide de
+    // quanto em quanto tempo "online"/métrica básica ficam frescas aqui.
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
   });
 
   const deleteMutation = useMutation({
@@ -105,7 +111,7 @@ export function InstallationsOverview() {
           <Card
             key={s.id}
             className="hover:border-primary cursor-pointer transition-colors"
-            onClick={() => selectServer(s.id)}
+            onClick={() => selectServer({ id: s.id, name: s.name })}
           >
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">{s.name}</CardTitle>

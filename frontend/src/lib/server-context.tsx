@@ -3,6 +3,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
 const STORAGE_KEY = "gestpg_selected_installation";
+const URL_PARAM = "installation";
+
+export interface SelectedServer {
+  id: string;
+  name: string;
+}
 
 // currentServerId fica fora do React de propósito — lib/api.ts (função
 // pura, sem hook) precisa ler o valor atual pra prefixar `/proxy/{id}` nas
@@ -15,11 +21,47 @@ export function getCurrentServerId(): string | null {
 }
 
 type ServerContextValue = {
-  selectedServerId: string | null;
-  selectServer: (id: string | null) => void;
+  selectedServer: SelectedServer | null;
+  selectServer: (server: SelectedServer | null) => void;
 };
 
 const ServerContext = createContext<ServerContextValue | null>(null);
+
+function readStoredServer(): SelectedServer | null {
+  if (typeof window === "undefined") return null;
+  // URL manda (link direto/compartilhado/recarregar a página) — só o id
+  // vem por ali, nome fica em branco até a próxima seleção via card (não
+  // vale a pena buscar a lista inteira só pra achar o nome de um id já
+  // conhecido). localStorage é o fallback pra navegação normal dentro do
+  // app (nome já foi visto quando selecionou pela overview).
+  const urlId = new URLSearchParams(window.location.search).get(URL_PARAM);
+  if (urlId) {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as SelectedServer;
+        if (parsed.id === urlId) return parsed;
+      } catch {
+        // localStorage corrompido/formato antigo, ignora
+      }
+    }
+    return { id: urlId, name: "" };
+  }
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored) as SelectedServer;
+  } catch {
+    return null;
+  }
+}
+
+function syncUrl(server: SelectedServer | null) {
+  const url = new URL(window.location.href);
+  if (server) url.searchParams.set(URL_PARAM, server.id);
+  else url.searchParams.delete(URL_PARAM);
+  window.history.replaceState(null, "", url.toString());
+}
 
 // ServerProvider existe sempre (ver providers.tsx), mesmo fora do modo
 // multi-instalação — custo zero: sem MULTI_SERVER_MODE, nada nunca chama
@@ -29,25 +71,22 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   // Lazy initializer, não useEffect+setState — client components são
   // pré-renderizados em build time (sem `window`), daí a checagem: nesse
   // momento devolve null (mesmo estado que existiria antes da hidratação
-  // de qualquer forma), no navegador de verdade lê o valor salvo direto.
-  const [selectedServerId, setSelectedServerId] = useState<string | null>(() =>
-    typeof window === "undefined" ? null : localStorage.getItem(STORAGE_KEY)
-  );
+  // de qualquer forma), no navegador de verdade lê o valor salvo/da URL.
+  const [selectedServer, setSelectedServer] = useState<SelectedServer | null>(readStoredServer);
 
   useEffect(() => {
-    currentServerId = selectedServerId;
-  }, [selectedServerId]);
+    currentServerId = selectedServer?.id ?? null;
+  }, [selectedServer]);
 
-  const selectServer = (id: string | null) => {
-    setSelectedServerId(id);
-    if (id) localStorage.setItem(STORAGE_KEY, id);
+  const selectServer = (server: SelectedServer | null) => {
+    setSelectedServer(server);
+    if (server) localStorage.setItem(STORAGE_KEY, JSON.stringify(server));
     else localStorage.removeItem(STORAGE_KEY);
+    syncUrl(server);
   };
 
   return (
-    <ServerContext.Provider value={{ selectedServerId, selectServer }}>
-      {children}
-    </ServerContext.Provider>
+    <ServerContext.Provider value={{ selectedServer, selectServer }}>{children}</ServerContext.Provider>
   );
 }
 

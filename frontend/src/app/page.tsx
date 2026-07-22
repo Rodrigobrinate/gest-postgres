@@ -18,13 +18,13 @@ import { InstallationsOverview } from "@/components/master/installations-overvie
 
 export default function Home() {
   // Só em MULTI_SERVER_MODE (build pro Cloudflare Pages) esse hook importa
-  // pra alguma coisa — fora dele, selectedServerId fica sempre null e a
+  // pra alguma coisa — fora dele, selectedServer fica sempre null e a
   // tela de baixo (dashboard de sempre) renderiza direto, sem overview
   // nenhuma no meio. Comportamento de build normal (1 frontend por
   // droplet) inteiramente inalterado.
-  const { selectedServerId, selectServer } = useSelectedServer();
+  const { selectedServer, selectServer } = useSelectedServer();
 
-  if (MULTI_SERVER_MODE && !selectedServerId) {
+  if (MULTI_SERVER_MODE && !selectedServer) {
     return <InstallationsOverview />;
   }
 
@@ -36,7 +36,12 @@ export default function Home() {
             <Database className="size-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">gest-postgres</h1>
+            <h1 className="text-xl font-semibold tracking-tight">
+              gest-postgres
+              {MULTI_SERVER_MODE && selectedServer?.name && (
+                <span className="text-muted-foreground font-normal"> — {selectedServer.name}</span>
+              )}
+            </h1>
             <p className="text-muted-foreground text-sm">
               Servidores PostgreSQL gerenciados
             </p>
