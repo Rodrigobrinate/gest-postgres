@@ -103,14 +103,18 @@ func (s *Service) rollupMetricsOnce(ctx context.Context) {
 			cpu_percent_avg, cpu_percent_min, cpu_percent_max,
 			memory_used_mb_avg, memory_used_mb_min, memory_used_mb_max,
 			connection_count_avg, connection_count_max,
-			disk_used_mb_avg, disk_used_mb_max
+			disk_used_mb_avg, disk_used_mb_max,
+			read_tuples_per_sec_avg, read_tuples_per_sec_max,
+			write_tuples_per_sec_avg, write_tuples_per_sec_max
 		)
 		SELECT
 			'server', server_id, 'hourly', date_trunc('hour', bucket_start),
 			avg(cpu_percent_avg), min(cpu_percent_min), max(cpu_percent_max),
 			avg(memory_used_mb_avg), min(memory_used_mb_min), max(memory_used_mb_max),
 			avg(connection_count_avg), max(connection_count_max),
-			avg(disk_used_mb_avg), max(disk_used_mb_max)
+			avg(disk_used_mb_avg), max(disk_used_mb_max),
+			avg(read_tuples_per_sec_avg), max(read_tuples_per_sec_max),
+			avg(write_tuples_per_sec_avg), max(write_tuples_per_sec_max)
 		FROM metric_history
 		WHERE scope = 'server' AND resolution = 'raw' AND bucket_start < $1
 		GROUP BY server_id, date_trunc('hour', bucket_start)
@@ -124,7 +128,11 @@ func (s *Service) rollupMetricsOnce(ctx context.Context) {
 			connection_count_avg = EXCLUDED.connection_count_avg,
 			connection_count_max = EXCLUDED.connection_count_max,
 			disk_used_mb_avg = EXCLUDED.disk_used_mb_avg,
-			disk_used_mb_max = EXCLUDED.disk_used_mb_max
+			disk_used_mb_max = EXCLUDED.disk_used_mb_max,
+			read_tuples_per_sec_avg = EXCLUDED.read_tuples_per_sec_avg,
+			read_tuples_per_sec_max = EXCLUDED.read_tuples_per_sec_max,
+			write_tuples_per_sec_avg = EXCLUDED.write_tuples_per_sec_avg,
+			write_tuples_per_sec_max = EXCLUDED.write_tuples_per_sec_max
 	`, rawCutoff); err != nil {
 		slog.Error("rollup de métricas: falha agregando server", "error", err)
 		return

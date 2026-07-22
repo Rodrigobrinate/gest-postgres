@@ -26,6 +26,7 @@ import {
 import { Square, XCircle, Database, AlertTriangle, Plus, Trash2, FlaskConical, Copy } from "lucide-react";
 import { MetricChart } from "../metric-chart";
 import { DatabaseSizeChart, ConnectionsPerDatabaseChart } from "../database-size-chart";
+import { ReadWriteChart } from "../read-write-chart";
 import { AlertRules } from "../alert-rules";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -317,6 +318,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <DatabaseSizeChart history={history ?? []} serverId={serverId} />
         <ConnectionsPerDatabaseChart history={history ?? []} serverId={serverId} />
+        <ReadWriteChart history={history ?? []} serverId={serverId} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

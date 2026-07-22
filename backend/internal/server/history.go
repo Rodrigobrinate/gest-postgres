@@ -21,6 +21,14 @@ type MetricPoint struct {
 	// banco — mesmo raciocínio de DatabaseSizesMB, usado pelo gráfico de
 	// linhas "Conexões por banco".
 	ConnectionsByDatabase map[string]int `json:"connections_by_database,omitempty"`
+	// ReadTuplesPerSec/WriteTuplesPerSec vêm de pg_stat_database (soma de
+	// todo banco não-template) — taxa, não acumulado (pg_stat_database
+	// guarda contador desde o último pg_stat_reset(), então precisa de
+	// delta entre polls pra virar "atividade agora", mesma lição já
+	// aplicada em IOPS por container/host). 0 até o segundo poll do
+	// servidor.
+	ReadTuplesPerSec  float64 `json:"read_tuples_per_sec"`
+	WriteTuplesPerSec float64 `json:"write_tuples_per_sec"`
 }
 
 // HistoryCollector guarda uma janela recente de métricas por servidor, só em
@@ -128,6 +136,13 @@ func (s *Service) collectMetricsOnce(ctx context.Context) {
 			diskMB += mb
 		}
 
+		var readTuplesPerSec, writeTuplesPerSec float64
+		if reads, writes, err := s.tuplesReadWrite(ctx, record); err != nil {
+			slog.Warn("coleta de métricas: falha lendo leituras/escritas", "server_id", record.ID, "error", err)
+		} else {
+			readTuplesPerSec, writeTuplesPerSec = tuplesPerSecRate(record.ID, reads, writes)
+		}
+
 		point := MetricPoint{
 			Timestamp:             now,
 			CPUPercent:            stats.CPUPercent,
@@ -136,6 +151,8 @@ func (s *Service) collectMetricsOnce(ctx context.Context) {
 			DiskUsedMB:            diskMB,
 			DatabaseSizesMB:       dbSizes,
 			ConnectionsByDatabase: connsByDB,
+			ReadTuplesPerSec:      readTuplesPerSec,
+			WriteTuplesPerSec:     writeTuplesPerSec,
 		}
 		s.history.append(record.ID, point)
 		// Grava no banco de metadados além de memória — sobrevive a
@@ -209,4 +226,69 @@ func (s *Service) databaseSizesMB(ctx context.Context, record *Server) (map[stri
 		sizes[name] = float64(bytes) / (1024 * 1024)
 	}
 	return sizes, rows.Err()
+}
+
+// tuplesReadWrite soma leitura/escrita de linha (tuple) de TODO banco
+// não-template do servidor, via pg_stat_database — "leitura" é
+// tup_returned+tup_fetched (linha devolvida por scan, sequencial ou por
+// índice), "escrita" é tup_inserted+tup_updated+tup_deleted (qualquer DML).
+// Contador acumulado desde o último pg_stat_reset() do cluster (não reseta
+// sozinho) — quem chama isso precisa converter em taxa (ver
+// tuplesPerSecRate), não usar cru.
+func (s *Service) tuplesReadWrite(ctx context.Context, record *Server) (reads, writes int64, err error) {
+	conn, err := s.connectTo(ctx, record, record.DatabaseName)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer conn.Close(ctx)
+
+	err = conn.QueryRow(ctx, `
+		SELECT
+			COALESCE(sum(s.tup_returned + s.tup_fetched), 0),
+			COALESCE(sum(s.tup_inserted + s.tup_updated + s.tup_deleted), 0)
+		FROM pg_stat_database s
+		JOIN pg_database d ON d.oid = s.datid
+		WHERE d.datistemplate = false
+	`).Scan(&reads, &writes)
+	return reads, writes, err
+}
+
+// tupleRateSample/tupleRateLast guardam a última leitura acumulada POR
+// SERVIDOR — mesmo raciocínio de containerIOPSRate (platform_stats.go) e
+// HostIOPS (docker/hostiops.go), aplicado aqui em vez de duplicar a
+// estrutura genérica só por causa do tipo da chave.
+type tupleRateSample struct {
+	reads, writes int64
+	at            time.Time
+}
+
+var (
+	tupleRateMu   sync.Mutex
+	tupleRateLast = make(map[string]tupleRateSample)
+)
+
+func tuplesPerSecRate(serverID string, reads, writes int64) (readsPerSec, writesPerSec float64) {
+	now := time.Now()
+
+	tupleRateMu.Lock()
+	prev, ok := tupleRateLast[serverID]
+	tupleRateLast[serverID] = tupleRateSample{reads, writes, now}
+	tupleRateMu.Unlock()
+
+	if !ok {
+		return 0, 0
+	}
+	dt := now.Sub(prev.at).Seconds()
+	if dt <= 0 {
+		return 0, 0
+	}
+	readsPerSec = float64(reads-prev.reads) / dt
+	writesPerSec = float64(writes-prev.writes) / dt
+	if readsPerSec < 0 {
+		readsPerSec = 0
+	}
+	if writesPerSec < 0 {
+		writesPerSec = 0
+	}
+	return readsPerSec, writesPerSec
 }

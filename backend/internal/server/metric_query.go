@@ -18,7 +18,8 @@ const metricHistoryFromDBWindow = time.Hour
 func (s *Service) getServerMetricHistoryDB(ctx context.Context, serverID string, since time.Time) ([]MetricPoint, error) {
 	rows, err := s.repo.pool.Query(ctx, `
 		SELECT bucket_start, cpu_percent_avg, memory_used_mb_avg, connection_count_avg,
-		       disk_used_mb_avg, database_sizes_mb, connections_by_database
+		       disk_used_mb_avg, read_tuples_per_sec_avg, write_tuples_per_sec_avg,
+		       database_sizes_mb, connections_by_database
 		FROM metric_history
 		WHERE scope = 'server' AND server_id = $1 AND bucket_start >= $2
 		ORDER BY bucket_start
@@ -33,7 +34,8 @@ func (s *Service) getServerMetricHistoryDB(ctx context.Context, serverID string,
 		var p MetricPoint
 		var connAvg float64
 		var dbSizesJSON, connsJSON []byte
-		if err := rows.Scan(&p.Timestamp, &p.CPUPercent, &p.MemoryUsedMB, &connAvg, &p.DiskUsedMB, &dbSizesJSON, &connsJSON); err != nil {
+		if err := rows.Scan(&p.Timestamp, &p.CPUPercent, &p.MemoryUsedMB, &connAvg, &p.DiskUsedMB,
+			&p.ReadTuplesPerSec, &p.WriteTuplesPerSec, &dbSizesJSON, &connsJSON); err != nil {
 			return nil, err
 		}
 		p.ConnectionCount = int(connAvg)

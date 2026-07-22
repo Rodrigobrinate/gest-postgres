@@ -280,6 +280,8 @@ export interface MetricPoint {
   memory_used_mb: number;
   connection_count: number;
   disk_used_mb: number;
+  read_tuples_per_sec: number;
+  write_tuples_per_sec: number;
   database_sizes_mb?: Record<string, number>;
   connections_by_database?: Record<string, number>;
 }

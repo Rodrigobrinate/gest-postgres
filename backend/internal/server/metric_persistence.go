@@ -29,6 +29,8 @@ func (s *Service) recordServerMetricRaw(ctx context.Context, serverID string, p 
 			memory_used_mb_avg, memory_used_mb_min, memory_used_mb_max,
 			connection_count_avg, connection_count_max,
 			disk_used_mb_avg, disk_used_mb_max,
+			read_tuples_per_sec_avg, read_tuples_per_sec_max,
+			write_tuples_per_sec_avg, write_tuples_per_sec_max,
 			database_sizes_mb, connections_by_database
 		) VALUES (
 			'server', $1, 'raw', $2,
@@ -36,10 +38,13 @@ func (s *Service) recordServerMetricRaw(ctx context.Context, serverID string, p 
 			$4, $4, $4,
 			$5, $6,
 			$7, $7,
-			$8, $9
+			$8, $8,
+			$9, $9,
+			$10, $11
 		)
 		ON CONFLICT (server_id, resolution, bucket_start) WHERE scope = 'server' DO NOTHING
-	`, serverID, p.Timestamp, p.CPUPercent, p.MemoryUsedMB, float64(p.ConnectionCount), p.ConnectionCount, p.DiskUsedMB, dbSizesJSON, connsJSON)
+	`, serverID, p.Timestamp, p.CPUPercent, p.MemoryUsedMB, float64(p.ConnectionCount), p.ConnectionCount, p.DiskUsedMB,
+		p.ReadTuplesPerSec, p.WriteTuplesPerSec, dbSizesJSON, connsJSON)
 }
 
 // recordPlatformMetricRaw é o equivalente pro agregado da plataforma (os 4
