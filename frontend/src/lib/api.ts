@@ -268,6 +268,12 @@ export interface DatabaseSize {
   size_bytes: number;
 }
 
+export interface TestDatabaseResult {
+  database: string;
+  username: string;
+  password: string;
+}
+
 export interface MetricPoint {
   timestamp: string;
   cpu_percent: number;
@@ -1068,6 +1074,12 @@ export const api = {
       { method: "POST" }
     ),
 
+  setAccessLevel: (id: string, name: string, database: string, level: "none" | "read" | "write") =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/roles/${encodeURIComponent(name)}/access?database=${encodeURIComponent(database)}`,
+      { method: "POST", body: JSON.stringify({ level }) }
+    ),
+
   listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
 
   createDatabase: (id: string, name: string) =>
@@ -1075,6 +1087,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
+
+  createTestDatabase: (id: string) =>
+    request<TestDatabaseResult>(`/api/v1/servers/${id}/databases/test`, { method: "POST" }),
 
   dropDatabase: (id: string, name: string) =>
     request<void>(`/api/v1/servers/${id}/databases/${encodeURIComponent(name)}`, { method: "DELETE" }),

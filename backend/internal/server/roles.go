@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -173,4 +174,83 @@ func (s *Service) SetTablePrivilege(ctx context.Context, id, database, schema, t
 		sql = fmt.Sprintf("REVOKE %s ON %s FROM %s", privilege, tableIdent, roleIdent)
 	}
 	return s.execDDL(ctx, id, database, sql)
+}
+
+var allowedAccessLevel = map[string]bool{"none": true, "read": true, "write": true}
+
+// SetDatabaseAccessLevel aplica um preset de "leitura"/"leitura e escrita"/
+// "nenhum acesso" em TODAS as tabelas de TODOS os schemas não-sistema do
+// banco de uma vez — o preset de mais alto nível que a aba Usuários oferece
+// (a matriz tabela-por-tabela continua disponível pra ajuste fino depois).
+// Sempre revoga tudo antes de conceder de novo, então trocar de preset (ex:
+// escrita -> leitura) não deixa INSERT/UPDATE/DELETE residual de antes.
+func (s *Service) SetDatabaseAccessLevel(ctx context.Context, id, database, role, level string) error {
+	if !identRegex.MatchString(role) {
+		return fmt.Errorf("%w: identificador de usuário inválido", ErrValidation)
+	}
+	if !allowedAccessLevel[level] {
+		return fmt.Errorf("%w: nível de acesso %q inválido", ErrValidation, level)
+	}
+
+	record, err := s.getRunningServer(ctx, id)
+	if err != nil {
+		return err
+	}
+	conn, err := s.connectTo(ctx, record, database)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	schemaRows, err := conn.Query(ctx, `
+		SELECT DISTINCT schemaname FROM pg_tables
+		WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+	`)
+	if err != nil {
+		return fmt.Errorf("listando schemas: %w", err)
+	}
+	var schemas []string
+	for schemaRows.Next() {
+		var schema string
+		if err := schemaRows.Scan(&schema); err != nil {
+			schemaRows.Close()
+			return fmt.Errorf("lendo schema: %w", err)
+		}
+		schemas = append(schemas, schema)
+	}
+	if err := schemaRows.Err(); err != nil {
+		schemaRows.Close()
+		return fmt.Errorf("listando schemas: %w", err)
+	}
+	schemaRows.Close()
+
+	if len(schemas) == 0 {
+		return nil // banco sem tabela nenhuma — nada pra conceder/revogar
+	}
+
+	schemaIdents := make([]string, len(schemas))
+	for i, s := range schemas {
+		schemaIdents[i] = pgx.Identifier{s}.Sanitize()
+	}
+	schemaList := strings.Join(schemaIdents, ", ")
+	roleIdent := pgx.Identifier{role}.Sanitize()
+
+	revokeSQL := fmt.Sprintf("REVOKE ALL ON ALL TABLES IN SCHEMA %s FROM %s", schemaList, roleIdent)
+	if _, err := conn.Exec(ctx, revokeSQL); err != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+
+	if level == "none" {
+		return nil
+	}
+
+	privilege := "SELECT"
+	if level == "write" {
+		privilege = "SELECT, INSERT, UPDATE, DELETE"
+	}
+	grantSQL := fmt.Sprintf("GRANT %s ON ALL TABLES IN SCHEMA %s TO %s", privilege, schemaList, roleIdent)
+	if _, err := conn.Exec(ctx, grantSQL); err != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+	return nil
 }

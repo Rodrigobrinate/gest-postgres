@@ -44,6 +44,15 @@ func (h *DetailHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *DetailHandler) CreateTestDatabase(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.CreateTestDatabase(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, result)
+}
+
 func (h *DetailHandler) ListHbaRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := h.service.ListHbaRules(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -168,6 +177,30 @@ func (h *DetailHandler) setPrivilege(w http.ResponseWriter, r *http.Request, gra
 	database := r.URL.Query().Get("database")
 
 	if err := h.service.SetTablePrivilege(r.Context(), id, database, schema, table, name, privilege, grant); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type setAccessLevelInput struct {
+	Level string `json:"level"`
+}
+
+// SetAccessLevel é o preset de alto nível (leitura/escrita/nenhum) da aba
+// Usuários — aplica em todas as tabelas do banco de uma vez, ver
+// SetDatabaseAccessLevel.
+func (h *DetailHandler) SetAccessLevel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+	database := r.URL.Query().Get("database")
+
+	var in setAccessLevelInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if err := h.service.SetDatabaseAccessLevel(r.Context(), id, database, name, in.Level); err != nil {
 		writeServiceError(w, err)
 		return
 	}

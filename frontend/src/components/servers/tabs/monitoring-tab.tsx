@@ -23,7 +23,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Square, XCircle, Database, AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { Square, XCircle, Database, AlertTriangle, Plus, Trash2, FlaskConical, Copy } from "lucide-react";
 import { MetricChart } from "../metric-chart";
 import { DatabaseSizeChart, ConnectionsPerDatabaseChart } from "../database-size-chart";
 import { AlertRules } from "../alert-rules";
@@ -91,6 +91,21 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
       invalidateDbs();
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao excluir banco"),
+  });
+
+  const [testDbResult, setTestDbResult] = useState<{
+    database: string;
+    username: string;
+    password: string;
+  } | null>(null);
+  const createTestDb = useMutation({
+    mutationFn: () => api.createTestDatabase(serverId),
+    onSuccess: (result) => {
+      setTestDbResult(result);
+      invalidateDbs();
+      queryClient.invalidateQueries({ queryKey: ["servers", serverId, "roles"] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar banco de teste"),
   });
 
   const { data: health } = useQuery({
@@ -194,30 +209,42 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Bancos de dados</CardTitle>
-            <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
-              <DialogTrigger render={<Button size="sm" variant="outline" />}>
-                <Plus className="size-4" />
-                Novo banco
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-sm">
-                <DialogHeader>
-                  <DialogTitle>Criar banco de dados</DialogTitle>
-                </DialogHeader>
-                <Input
-                  placeholder="nome_do_banco"
-                  value={newDbName}
-                  onChange={(e) => setNewDbName(e.target.value)}
-                />
-                <DialogFooter>
-                  <Button
-                    disabled={createDb.isPending || !newDbName.trim()}
-                    onClick={() => createDb.mutate()}
-                  >
-                    {createDb.isPending ? "Criando..." : "Criar"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <div className="flex gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={createTestDb.isPending}
+                onClick={() => createTestDb.mutate()}
+                title="Cria um banco novo + um usuário com senha, acesso só a esse banco"
+              >
+                <FlaskConical className="size-4" />
+                {createTestDb.isPending ? "Criando..." : "Criar banco de teste"}
+              </Button>
+              <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
+                <DialogTrigger render={<Button size="sm" variant="outline" />}>
+                  <Plus className="size-4" />
+                  Novo banco
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Criar banco de dados</DialogTitle>
+                  </DialogHeader>
+                  <Input
+                    placeholder="nome_do_banco"
+                    value={newDbName}
+                    onChange={(e) => setNewDbName(e.target.value)}
+                  />
+                  <DialogFooter>
+                    <Button
+                      disabled={createDb.isPending || !newDbName.trim()}
+                      onClick={() => createDb.mutate()}
+                    >
+                      {createDb.isPending ? "Criando..." : "Criar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {!dbSizes || dbSizes.length === 0 ? (
@@ -432,6 +459,47 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
       </Card>
 
       <AlertRules serverId={serverId} />
+
+      <Dialog open={!!testDbResult} onOpenChange={(v) => !v && setTestDbResult(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Banco de teste criado</DialogTitle>
+          </DialogHeader>
+          <p className="text-muted-foreground text-xs">
+            Usuário criado com acesso só a esse banco. A senha não fica guardada na plataforma —
+            copie agora, você não vai poder ver de novo.
+          </p>
+          <div className="grid gap-2 text-sm">
+            <Field label="Banco" value={testDbResult?.database ?? ""} />
+            <Field label="Usuário" value={testDbResult?.username ?? ""} />
+            <Field label="Senha" value={testDbResult?.password ?? ""} />
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                if (testDbResult) {
+                  navigator.clipboard.writeText(
+                    `banco: ${testDbResult.database}\nusuário: ${testDbResult.username}\nsenha: ${testDbResult.password}`
+                  );
+                  toast.success("Copiado");
+                }
+              }}
+            >
+              <Copy className="size-4" />
+              Copiar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <code className="bg-muted rounded border px-2 py-1 font-mono text-xs break-all">{value}</code>
     </div>
   );
 }

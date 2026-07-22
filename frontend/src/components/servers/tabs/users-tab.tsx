@@ -15,7 +15,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CreateRoleDialog } from "../create-role-dialog";
-import { ChevronDown, ChevronRight, KeyRound, ShieldCheck, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, ShieldCheck, Trash2, Eye, Pencil, Ban } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export function UsersTab({ serverId, database }: { serverId: string; database: string }) {
   const { data: roles, isLoading } = useQuery({
@@ -147,27 +154,97 @@ function RolePrivileges({
   database: string;
   role: string;
 }) {
+  // Estado próprio, não o `database` (ativo na página inteira) do pai — é
+  // isso que deixa dar uma olhada/mexer no acesso da role em QUALQUER banco
+  // do servidor sem precisar trocar o banco ativo da página toda.
+  const [selectedDb, setSelectedDb] = useState(database);
+
+  const { data: databases } = useQuery({
+    queryKey: ["servers", serverId, "databases"],
+    queryFn: () => api.listDatabases(serverId),
+  });
+
   const { data: privs, isLoading } = useQuery({
-    queryKey: ["servers", serverId, "role-privileges", database, role],
-    queryFn: () => api.rolePrivileges(serverId, role, database),
-    enabled: !!database,
+    queryKey: ["servers", serverId, "role-privileges", selectedDb, role],
+    queryFn: () => api.rolePrivileges(serverId, role, selectedDb),
+    enabled: !!selectedDb,
   });
 
   const queryClient = useQueryClient();
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["servers", serverId, "role-privileges"] });
+
   const toggle = useMutation({
     mutationFn: (args: { schema: string; table: string; privilege: Privilege; grant: boolean }) =>
-      api.setPrivilege(serverId, role, database, args.schema, args.table, args.privilege, args.grant),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["servers", serverId, "role-privileges"] });
-    },
+      api.setPrivilege(serverId, role, selectedDb, args.schema, args.table, args.privilege, args.grant),
+    onSuccess: invalidate,
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao atualizar permissão"),
+  });
+
+  const setLevel = useMutation({
+    mutationFn: (level: "none" | "read" | "write") => api.setAccessLevel(serverId, role, selectedDb, level),
+    onSuccess: (_d, level) => {
+      const label = level === "none" ? "Acesso removido" : level === "read" ? "Somente leitura aplicada" : "Leitura e escrita aplicada";
+      toast.success(`${label} em "${selectedDb}"`);
+      invalidate();
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao aplicar preset de acesso"),
   });
 
   return (
     <div className="bg-muted/30 border-t px-4 py-3">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium">
-        <ShieldCheck className="size-3.5" />
-        Permissões em &ldquo;{database}&rdquo;
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium">
+          <ShieldCheck className="size-3.5" />
+          Permissões em
+          <Select value={selectedDb} onValueChange={(v) => v && setSelectedDb(v)}>
+            <SelectTrigger className="h-6 w-40 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(databases ?? [database]).map((db) => (
+                <SelectItem key={db} value={db}>
+                  {db}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs"
+            disabled={setLevel.isPending}
+            onClick={() => setLevel.mutate("read")}
+            title="Concede SELECT em todas as tabelas do banco de uma vez"
+          >
+            <Eye className="size-3" />
+            Somente leitura
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs"
+            disabled={setLevel.isPending}
+            onClick={() => setLevel.mutate("write")}
+            title="Concede SELECT/INSERT/UPDATE/DELETE em todas as tabelas do banco de uma vez"
+          >
+            <Pencil className="size-3" />
+            Leitura e escrita
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs text-red-600 hover:text-red-700"
+            disabled={setLevel.isPending}
+            onClick={() => setLevel.mutate("none")}
+            title="Revoga tudo nesse banco"
+          >
+            <Ban className="size-3" />
+            Nenhum acesso
+          </Button>
+        </div>
       </div>
       {isLoading ? (
         <p className="text-muted-foreground text-xs">Carregando...</p>
