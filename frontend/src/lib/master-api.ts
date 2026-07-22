@@ -34,12 +34,19 @@ async function masterRequest<T>(path: string, init?: RequestInit): Promise<T> {
 export interface CreateMasterServerInput {
   name: string;
   tunnel_hostname: string;
+}
+
+// integration_key só existe nessa resposta — o Worker GERA a chave (nunca
+// aceita uma vinda do cliente), mostrada uma vez pra colar no
+// `setup.sh --integration-key` do droplet.
+export interface CreateMasterServerResult {
+  id: string;
   integration_key: string;
 }
 
 export const masterApi = {
   listServers: () => masterRequest<MasterServerSummary[]>("/servers"),
   createServer: (input: CreateMasterServerInput) =>
-    masterRequest<{ id: string }>("/servers", { method: "POST", body: JSON.stringify(input) }),
+    masterRequest<CreateMasterServerResult>("/servers", { method: "POST", body: JSON.stringify(input) }),
   deleteServer: (id: string) => masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "DELETE" }),
 };
