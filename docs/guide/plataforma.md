@@ -35,9 +35,9 @@ Abaixo, **tabela por container**: CPU, memória, peso do container, I/O de disco
 
 ### Origem dos números
 
-- **CPU / rede / I/O** — soma dos containers Docker (sem acesso ao host além da API Docker pra esses).
-- **Disco** — exceção: número real do **host** (total/usado/livre), via `statfs` num mount read-only de um único arquivo (`/etc/hostname`, não o diretório `/etc` inteiro) dentro do container do backend.
-- **Memória total** — vem do `/info` do Docker (`MemTotal`), **não** soma de container. Corrigido depois de um bug real reportado pelo usuário: somar `MemoryLimitMB` de cada container inflava o total, porque container **sem** limite explícito reporta o host inteiro como seu "limite" (fallback do cgroup) — somar isso entre vários containers sem limite multiplicava o total. CPU/rede/I/O não têm bug equivalente (CPU% é por delta, não por limite; rede/I/O são contadores acumulados).
+- **Rede / I/O** — soma dos containers Docker (sem acesso ao host além da API Docker pra esses — não tem um jeito simples de medir rede/I/O do host inteiro via `/proc`, e contadores acumulados por container já dão um número honesto).
+- **Disco** — número real do **host** (total/usado/livre), via `statfs` num mount read-only de um único arquivo (`/etc/hostname`, não o diretório `/etc` inteiro) dentro do container do backend. "Usado"/"total" seguem a mesma convenção do `df`: a reserva do ext4 pra root (tipicamente 5% do filesystem) não conta nem como usado nem como livre — contá-la como "usado" (bug corrigido depois de comparar com o EasyPanel no mesmo host) inflava o percentual sem uso real nenhum acontecendo.
+- **Memória (total e usada)** e **CPU** — número real do **host**, não soma de container. `/proc/meminfo` (mount `/hostmem`) pra memória, `MemAvailable` (não `MemFree` — senão cache de página conta como "uso" e infla o número) pro cálculo de usado. `/proc/stat` (mount `/hostcpu`) pra CPU — precisa de duas leituras pra calcular %, então a primeira chamada depois do backend subir cai pro fallback de soma de container só naquela vez. Motivo de existir: soma de container nunca inclui o que roda fora de cgroup Docker (kernel, `dockerd`, sshd, cron, o `firewall-agent`/`update-agent` que rodam no host de propósito) — corrigido depois de comparar ao vivo com o EasyPanel no mesmo host e ver CPU 0.2% vs 25%, memória 8% vs 39%.
 
 ### Peso do container
 

@@ -176,16 +176,35 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 		stats.NetworkTxBytesTotal += cs.NetworkTxBytes
 	}
 
-	// Memória TOTAL vem do /info do Docker (memória real do host), nunca de
-	// somar MemoryLimitMB por container — container sem limite explícito
-	// reporta o host inteiro como "limite", e somar isso entre vários
-	// containers sem limite infla o total pra um múltiplo do real (bug
-	// visto ao vivo: dashboard mostrando "de 14665 MB" numa máquina de
-	// ~1.9GB). Cada container individual continua mostrando o limite dele
-	// próprio (cs.MemoryLimitMB) — só o AGREGADO da plataforma usa a fonte
-	// real, mesmo raciocínio já usado pro disco (docker.HostDiskUsage).
-	if memTotal, err := s.docker.HostMemoryTotalBytes(ctx); err == nil && memTotal > 0 {
+	// Memória TOTAL e USADA vêm de /proc/meminfo do HOST de verdade (mount
+	// /hostmem, ver docker.HostMemoryUsage), nunca de somar
+	// MemoryLimitMB/MemoryUsedMB por container. Pro total, isso já era
+	// assim antes por outro motivo (container sem limite explícito reporta
+	// o host inteiro como "limite", e somar isso entre vários containers
+	// sem limite infla o total pra um múltiplo do real — bug visto ao vivo:
+	// dashboard mostrando "de 14665 MB" numa máquina de ~1.9GB). Pro
+	// usado, o motivo é outro: soma de container nunca inclui
+	// kernel/dockerd/sshd/cron/firewall-agent/update-agent (tudo fora de
+	// cgroup Docker) — comparado ao vivo contra o Painel do EasyPanel no
+	// mesmo host, que lê o host de verdade e mostrava bem mais memória em
+	// uso. Cada container individual continua mostrando o limite/uso dele
+	// próprio (cs.MemoryLimitMB/cs.MemoryUsedMB) — só o AGREGADO da
+	// plataforma troca de fonte, mesmo raciocínio já usado pro disco
+	// (docker.HostDiskUsage). Sem esse mount (instalação antiga que ainda
+	// não passou pelo setup.sh dessa versão), cai de volta pra soma de
+	// container, silenciosamente.
+	if memTotal, memUsed, err := docker.HostMemoryUsage(); err == nil {
 		stats.TotalMemoryLimitMB = float64(memTotal) / (1024 * 1024)
+		stats.TotalMemoryUsedMB = float64(memUsed) / (1024 * 1024)
+	}
+
+	// CPU do host de verdade via /proc/stat (mount /hostcpu) — mesmo
+	// raciocínio da memória acima. Primeira leitura depois do backend
+	// subir sempre erra (sem amostra anterior pra comparar, ver
+	// docker.HostCPUPercent) — nesse caso mantém a soma de container já
+	// calculada acima em vez de zerar.
+	if cpuPercent, err := docker.HostCPUPercent(); err == nil {
+		stats.TotalCPUPercent = cpuPercent
 	}
 	sort.Slice(stats.Containers, func(i, j int) bool {
 		return stats.Containers[i].CPUPercent > stats.Containers[j].CPUPercent

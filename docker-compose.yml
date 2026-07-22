@@ -127,6 +127,14 @@ services:
       # inócuo, nunca o diretório /etc inteiro (que tem shadow/ssh/sudoers/
       # cron — nenhum motivo pra isso ser legível de dentro do container).
       - /etc/hostname:/hostfs:ro
+      # CPU/memória do dashboard (card agregado) eram só soma de container
+      # Docker — sempre menor que o host de verdade, porque não conta o
+      # kernel/dockerd/sshd/cron/outros processo fora de container (achado
+      # comparando com o Painel do EasyPanel no mesmo host, que lê o host
+      # de verdade). Mesmo raciocínio do /hostfs acima: dois arquivos
+      # únicos e read-only do /proc real do host, nunca o /proc inteiro.
+      - /proc/meminfo:/hostmem:ro
+      - /proc/stat:/hostcpu:ro
       # Raiz do gerenciador de arquivos do host (aba "Arquivos do host") —
       # read-write de propósito, mas NUNCA a raiz inteira do filesystem:
       # HOST_FILES_ROOT é uma pasta configurável (default /srv/gestpg-files),
