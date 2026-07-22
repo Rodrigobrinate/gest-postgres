@@ -8,6 +8,7 @@ import { API_URL } from "@/lib/api";
 export interface MasterServerSummary {
   id: string;
   name: string;
+  tunnel_hostname: string;
   online: boolean;
   version?: string;
 }
@@ -44,9 +45,16 @@ export interface CreateMasterServerResult {
   integration_key: string;
 }
 
+export interface UpdateMasterServerInput {
+  name: string;
+  tunnel_hostname: string;
+}
+
 export const masterApi = {
   listServers: () => masterRequest<MasterServerSummary[]>("/servers"),
   createServer: (input: CreateMasterServerInput) =>
     masterRequest<CreateMasterServerResult>("/servers", { method: "POST", body: JSON.stringify(input) }),
+  updateServer: (id: string, input: UpdateMasterServerInput) =>
+    masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteServer: (id: string) => masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "DELETE" }),
 };

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateInstallationDialog } from "./create-installation-dialog";
+import { EditInstallationDialog } from "./edit-installation-dialog";
 import { Database, Trash2 } from "lucide-react";
 
 // Tela inicial em MULTI_SERVER_MODE (hospedado no Cloudflare Pages, atrás
@@ -76,6 +77,7 @@ export function InstallationsOverview() {
                 <Badge variant={s.online ? "default" : "destructive"}>
                   {s.online ? "online" : "offline"}
                 </Badge>
+                <EditInstallationDialog installation={s} />
                 <Button
                   variant="ghost"
                   size="icon"
@@ -89,11 +91,10 @@ export function InstallationsOverview() {
                 </Button>
               </div>
             </CardHeader>
-            {s.version && (
-              <CardContent>
-                <p className="text-muted-foreground text-sm">versão {s.version}</p>
-              </CardContent>
-            )}
+            <CardContent className="space-y-1">
+              <p className="text-muted-foreground truncate font-mono text-xs">{s.tunnel_hostname}</p>
+              {s.version && <p className="text-muted-foreground text-sm">versão {s.version}</p>}
+            </CardContent>
           </Card>
         ))}
       </div>
