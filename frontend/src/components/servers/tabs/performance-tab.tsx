@@ -128,7 +128,7 @@ export function PerformanceTab({ serverId, database }: { serverId: string; datab
   });
 
   const enable = useMutation({
-    mutationFn: () => api.enableQueryStats(serverId),
+    mutationFn: () => api.enableQueryStats(serverId, database),
     onSuccess: () => {
       toast.success("Monitoramento de queries habilitado — servidor reiniciou");
       queryClient.invalidateQueries({ queryKey: ["servers", serverId] });

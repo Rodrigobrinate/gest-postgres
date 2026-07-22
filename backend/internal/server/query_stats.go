@@ -29,8 +29,17 @@ func containsLib(csv, lib string) bool {
 	return false
 }
 
-func (s *Service) enableQueryStatsExtension(ctx context.Context, record *Server) error {
-	conn, err := s.connectTo(ctx, record, record.DatabaseName)
+// enableQueryStatsExtension roda CREATE EXTENSION no banco pedido — não
+// necessariamente o banco PRIMÁRIO do servidor. pg_stat_statements precisa
+// da extensão criada em CADA banco que vai consultar a view, mesmo com
+// shared_preload_libraries (cluster inteiro) já habilitado — sem isso, a
+// coleta funciona mas a view não existe no banco que o usuário tá olhando,
+// e a aba Desempenho continua "não habilitado" mesmo depois do fluxo
+// guiado dizer sucesso (achado ao vivo: reportado pelo usuário depois de
+// habilitar num banco de teste criado por "Criar banco de teste", que
+// nunca é o banco primário do servidor).
+func (s *Service) enableQueryStatsExtension(ctx context.Context, record *Server, database string) error {
+	conn, err := s.connectTo(ctx, record, database)
 	if err != nil {
 		return err
 	}
@@ -45,10 +54,16 @@ func (s *Service) enableQueryStatsExtension(ctx context.Context, record *Server)
 // EnableQueryStats é a versão "sob demanda" pra servidores já existentes (criados
 // antes de isso virar padrão, ou que tiveram a extensão desabilitada por fora).
 // Reinicia o container — é o único jeito de shared_preload_libraries pegar valer.
-func (s *Service) EnableQueryStats(ctx context.Context, id string) error {
+// database é o banco que a aba Desempenho está mostrando (pode ser
+// qualquer um do servidor, não só o primário) — é onde a extensão
+// precisa existir pra aquela aba específica passar a funcionar.
+func (s *Service) EnableQueryStats(ctx context.Context, id, database string) error {
 	record, err := s.getRunningServer(ctx, id)
 	if err != nil {
 		return err
+	}
+	if database == "" {
+		database = record.DatabaseName
 	}
 
 	if err := s.enableQueryStatsPreload(ctx, record); err != nil {
@@ -67,7 +82,7 @@ func (s *Service) EnableQueryStats(ctx context.Context, id string) error {
 	if err := waitPostgresReady(ctx, record.ContainerName, record.Username, password, record.DatabaseName, 60*time.Second); err != nil {
 		return err
 	}
-	return s.enableQueryStatsExtension(ctx, record)
+	return s.enableQueryStatsExtension(ctx, record, database)
 }
 
 type SlowQuery struct {

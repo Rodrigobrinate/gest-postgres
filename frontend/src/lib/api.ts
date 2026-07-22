@@ -354,6 +354,8 @@ export interface ContainerStat {
   block_write_bytes: number;
   block_read_ops: number;
   block_write_ops: number;
+  block_read_ops_per_sec: number;
+  block_write_ops_per_sec: number;
   volume_size_bytes?: number;
 }
 
@@ -1046,8 +1048,11 @@ export const api = {
       { method: "POST" }
     ),
 
-  enableQueryStats: (id: string) =>
-    request<{ status: string }>(`/api/v1/servers/${id}/query-stats/enable`, { method: "POST" }),
+  enableQueryStats: (id: string, database: string) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/query-stats/enable?database=${encodeURIComponent(database)}`,
+      { method: "POST" }
+    ),
 
   listRoles: (id: string) => request<RoleInfo[]>(`/api/v1/servers/${id}/roles`),
 

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gest-postgres/backend/internal/docker"
 )
@@ -27,7 +28,57 @@ type ContainerStat struct {
 	BlockWriteBytes int64   `json:"block_write_bytes"`
 	BlockReadOps    int64   `json:"block_read_ops"`
 	BlockWriteOps   int64   `json:"block_write_ops"`
-	VolumeSizeBytes int64   `json:"volume_size_bytes,omitempty"` // "peso" do container: soma dos volumes nomeados montados, ou (sem volume) a camada gravável
+	// BlockReadOpsPerSec/BlockWriteOpsPerSec são a taxa (não o acumulado
+	// desde que o container subiu, que é o que BlockReadOps/BlockWriteOps
+	// acima guardam) — pedido explícito do usuário: "atual", não
+	// cumulativo. Calculado por delta entre polls (ver
+	// containerIOPSRate), 0 até o segundo poll desse container.
+	BlockReadOpsPerSec  float64 `json:"block_read_ops_per_sec"`
+	BlockWriteOpsPerSec float64 `json:"block_write_ops_per_sec"`
+	VolumeSizeBytes     int64   `json:"volume_size_bytes,omitempty"` // "peso" do container: soma dos volumes nomeados montados, ou (sem volume) a camada gravável
+}
+
+// containerIOPSSample/containerIOPSLast guardam a última contagem
+// acumulada de operações por container — mesmo raciocínio de
+// hostIOPSPrev (docker/hostiops.go), só que por container em vez de
+// host inteiro. Container que some (parado/removido) simplesmente para
+// de ser atualizado aqui; não é limpo ativamente (mapa pequeno, poucas
+// dezenas de containers num host típico, não vale a complexidade de
+// expirar entrada).
+type containerIOPSSample struct {
+	readOps, writeOps int64
+	at                time.Time
+}
+
+var (
+	containerIOPSMu   sync.Mutex
+	containerIOPSLast = make(map[string]containerIOPSSample)
+)
+
+func containerIOPSRate(containerID string, readOps, writeOps int64) (readPerSec, writePerSec float64) {
+	now := time.Now()
+
+	containerIOPSMu.Lock()
+	prev, ok := containerIOPSLast[containerID]
+	containerIOPSLast[containerID] = containerIOPSSample{readOps, writeOps, now}
+	containerIOPSMu.Unlock()
+
+	if !ok {
+		return 0, 0
+	}
+	dt := now.Sub(prev.at).Seconds()
+	if dt <= 0 {
+		return 0, 0
+	}
+	readPerSec = float64(readOps-prev.readOps) / dt
+	writePerSec = float64(writeOps-prev.writeOps) / dt
+	if readPerSec < 0 {
+		readPerSec = 0
+	}
+	if writePerSec < 0 {
+		writePerSec = 0
+	}
+	return readPerSec, writePerSec
 }
 
 // PlatformStats agrega TODOS os containers Docker do host (não só os
@@ -111,19 +162,22 @@ func (s *Service) GetPlatformStats(ctx context.Context) (*PlatformStats, error) 
 			if len(c.Names) > 0 {
 				name = strings.TrimPrefix(c.Names[0], "/")
 			}
+			readPerSec, writePerSec := containerIOPSRate(c.ID, snapshot.BlockReadOps, snapshot.BlockWriteOps)
 			cs := ContainerStat{
-				ContainerID:     c.ID,
-				Name:            name,
-				Image:           c.Image,
-				CPUPercent:      snapshot.CPUPercent,
-				MemoryUsedMB:    snapshot.MemoryUsedMB,
-				MemoryLimitMB:   snapshot.MemoryLimitMB,
-				NetworkRxBytes:  snapshot.NetworkRxBytes,
-				NetworkTxBytes:  snapshot.NetworkTxBytes,
-				BlockReadBytes:  snapshot.BlockReadBytes,
-				BlockWriteBytes: snapshot.BlockWriteBytes,
-				BlockReadOps:    snapshot.BlockReadOps,
-				BlockWriteOps:   snapshot.BlockWriteOps,
+				ContainerID:         c.ID,
+				Name:                name,
+				Image:               c.Image,
+				CPUPercent:          snapshot.CPUPercent,
+				MemoryUsedMB:        snapshot.MemoryUsedMB,
+				MemoryLimitMB:       snapshot.MemoryLimitMB,
+				NetworkRxBytes:      snapshot.NetworkRxBytes,
+				NetworkTxBytes:      snapshot.NetworkTxBytes,
+				BlockReadBytes:      snapshot.BlockReadBytes,
+				BlockWriteBytes:     snapshot.BlockWriteBytes,
+				BlockReadOps:        snapshot.BlockReadOps,
+				BlockWriteOps:       snapshot.BlockWriteOps,
+				BlockReadOpsPerSec:  readPerSec,
+				BlockWriteOpsPerSec: writePerSec,
 			}
 			if srv, ok := byContainerID[c.ID]; ok {
 				cs.IsManaged = true

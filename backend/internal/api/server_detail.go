@@ -321,8 +321,9 @@ func (h *DetailHandler) ResetQueryStats(w http.ResponseWriter, r *http.Request) 
 
 func (h *DetailHandler) EnableQueryStats(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
 
-	if err := h.service.EnableQueryStats(r.Context(), id); err != nil {
+	if err := h.service.EnableQueryStats(r.Context(), id, database); err != nil {
 		writeServiceError(w, err)
 		return
 	}

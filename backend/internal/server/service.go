@@ -207,7 +207,7 @@ func (s *Service) provision(ctx context.Context, serverID, plainPassword string)
 		return
 	}
 
-	if err := s.enableQueryStatsExtension(ctx, record); err != nil {
+	if err := s.enableQueryStatsExtension(ctx, record, record.DatabaseName); err != nil {
 		s.markError(ctx, serverID)
 		return
 	}

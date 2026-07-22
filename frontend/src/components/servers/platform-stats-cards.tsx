@@ -231,7 +231,7 @@ export function PlatformStatsCards() {
                     <th className="px-4 py-2 text-right font-normal">CPU</th>
                     <th className="px-4 py-2 text-right font-normal">Memória</th>
                     <th className="px-4 py-2 text-right font-normal">Peso do container</th>
-                    <th className="px-4 py-2 text-right font-normal">I/O disco (leitura/escrita)</th>
+                    <th className="px-4 py-2 text-right font-normal">I/O disco (ops/s)</th>
                     <th className="px-4 py-2 text-right font-normal">Rede (acumulado)</th>
                   </tr>
                 </thead>
@@ -275,9 +275,12 @@ export function PlatformStatsCards() {
                           {c.volume_size_bytes != null ? formatBytes(c.volume_size_bytes) : "—"}
                         </td>
                         <td className="text-muted-foreground px-4 py-2 text-right font-mono text-xs">
-                          ↓{formatBytes(c.block_read_bytes)} ↑{formatBytes(c.block_write_bytes)}
-                          {(c.block_read_ops > 0 || c.block_write_ops > 0) && (
-                            <span> · {c.block_read_ops + c.block_write_ops} ops</span>
+                          {c.block_read_ops_per_sec === 0 && c.block_write_ops_per_sec === 0 ? (
+                            "—"
+                          ) : (
+                            <>
+                              ↓{c.block_read_ops_per_sec.toFixed(1)} ↑{c.block_write_ops_per_sec.toFixed(1)}
+                            </>
                           )}
                         </td>
                         <td className="text-muted-foreground px-4 py-2 text-right font-mono text-xs">
