@@ -55,6 +55,15 @@ type Config struct {
 	// caso, o CIDR da rede Docker onde ele roda (ex: a sub-rede de
 	// gestpg-internal).
 	TrustedProxies []*net.IPNet
+
+	// CloudflareTunnelToken/IntegrationKeySeed: modo de conexão com o
+	// sistema mestre na Cloudflare (setup.sh --cloud-token/--integration-key,
+	// gravados em CLOUDFLARE_TUNNEL_TOKEN/INTEGRATION_KEY_SEED no .env).
+	// Vazios por padrão — lidos uma vez no boot pra subir o cloudflared e
+	// semear a chave de integração sozinho (ver cmd/api/main.go), mesmo
+	// canal de confiança que ADMIN_PASSWORD já usa.
+	CloudflareTunnelToken string
+	IntegrationKeySeed    string
 }
 
 func Load() (*Config, error) {
@@ -68,6 +77,8 @@ func Load() (*Config, error) {
 		ManagedPortRangeEnd:     56432,
 		AdminPassword:           getEnv("ADMIN_PASSWORD", ""),
 		AllowedOrigins:          splitCSV(getEnv("ALLOWED_ORIGINS", "http://localhost:4173")),
+		CloudflareTunnelToken:   getEnv("CLOUDFLARE_TUNNEL_TOKEN", ""),
+		IntegrationKeySeed:      getEnv("INTEGRATION_KEY_SEED", ""),
 	}
 
 	trustedProxies, err := parseCIDRList(splitCSV(getEnv("TRUSTED_PROXIES", "")))

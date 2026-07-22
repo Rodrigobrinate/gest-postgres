@@ -26,7 +26,7 @@ export function EnvTab({ env, containerId }: { env: string[]; containerId: strin
     mutationFn: () => api.updateContainerEnv(containerId, envRowsToRecord(rows)),
     onSuccess: (result) => {
       toast.success("Variáveis atualizadas — container recriado com o novo ID");
-      router.push(`/infra/containers/${result.id}`);
+      router.push(`/infra/containers?id=${result.id}`);
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao atualizar variáveis"),
   });

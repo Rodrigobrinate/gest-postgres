@@ -94,14 +94,18 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao excluir banco"),
   });
 
+  const [testDbOpen, setTestDbOpen] = useState(false);
+  const [testDbSuffix, setTestDbSuffix] = useState("");
   const [testDbResult, setTestDbResult] = useState<{
     database: string;
     username: string;
     password: string;
   } | null>(null);
   const createTestDb = useMutation({
-    mutationFn: () => api.createTestDatabase(serverId),
+    mutationFn: () => api.createTestDatabase(serverId, testDbSuffix.trim()),
     onSuccess: (result) => {
+      setTestDbOpen(false);
+      setTestDbSuffix("");
       setTestDbResult(result);
       invalidateDbs();
       queryClient.invalidateQueries({ queryKey: ["servers", serverId, "roles"] });
@@ -215,16 +219,45 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">Bancos de dados</CardTitle>
             <div className="flex gap-1.5">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={createTestDb.isPending}
-                onClick={() => createTestDb.mutate()}
-                title="Cria um banco novo + um usuário com senha, acesso só a esse banco"
-              >
-                <FlaskConical className="size-4" />
-                {createTestDb.isPending ? "Criando..." : "Criar banco de teste"}
-              </Button>
+              <Dialog open={testDbOpen} onOpenChange={setTestDbOpen}>
+                <DialogTrigger render={<Button size="sm" variant="outline" />}>
+                  <FlaskConical className="size-4" />
+                  Criar banco de teste
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Criar banco de teste</DialogTitle>
+                  </DialogHeader>
+                  <p className="text-muted-foreground text-xs">
+                    Cria um banco novo + um usuário com senha, acesso só a esse banco.
+                  </p>
+                  <div className="flex items-center gap-0 rounded-md border">
+                    <span className="bg-muted text-muted-foreground border-r px-2 py-2 font-mono text-sm">
+                      test_
+                    </span>
+                    <Input
+                      placeholder="identificador"
+                      value={testDbSuffix}
+                      onChange={(e) => setTestDbSuffix(e.target.value)}
+                      className="border-0 font-mono"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    Só letra, número e underscore, começando com letra ou underscore.
+                  </p>
+                  <DialogFooter>
+                    <Button
+                      disabled={
+                        createTestDb.isPending || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(testDbSuffix.trim())
+                      }
+                      onClick={() => createTestDb.mutate()}
+                    >
+                      {createTestDb.isPending ? "Criando..." : "Criar"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
               <Dialog open={newDbOpen} onOpenChange={setNewDbOpen}>
                 <DialogTrigger render={<Button size="sm" variant="outline" />}>
                   <Plus className="size-4" />

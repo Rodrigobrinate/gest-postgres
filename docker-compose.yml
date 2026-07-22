@@ -118,8 +118,20 @@ services:
       # Vazio por padrão de propósito — ver .env.example. Só popular se um
       # reverse proxy de verdade estiver na frente do backend.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # Vazios por padrão — só populados por `setup.sh --cloud-token/
+      # --integration-key` (modo de conexão com o sistema mestre na
+      # Cloudflare). Lidos uma vez no boot do backend pra semear a chave de
+      # integração e subir o cloudflared sozinho, sem dança de login via
+      # curl dentro do setup.sh (ver cmd/api/main.go).
+      CLOUDFLARE_TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      INTEGRATION_KEY_SEED: ${INTEGRATION_KEY_SEED:-}
     ports:
-      - "28080:28080"
+      # BACKEND_PORT_PUBLISH default publica cru na porta padrão, igual
+      # sempre. Modo cloud (setup.sh --cloud-token) rebind pra
+      # 127.0.0.1:28080:28080 — não remove a publicação inteira, só tira do
+      # alcance da internet: setup.sh e um túnel SSH de emergência continuam
+      # funcionando mesmo se o Cloudflare Tunnel cair.
+      - "${BACKEND_PORT_PUBLISH:-28080:28080}"
     volumes:
       # Só pra medir disco real do host via statfs (dashboard) — statfs só
       # precisa de QUALQUER caminho no mesmo filesystem que / (mesmo
@@ -174,7 +186,14 @@ services:
         condition: service_started
     networks: [gestpg-internal, gestpg-managed]
 
+  # profiles: só sobe com `docker compose --profile with-frontend up` — modo
+  # cloud (setup.sh --cloud-token) não inclui esse profile, então o frontend
+  # nem builda/roda no droplet (visualização vive no Cloudflare Pages).
+  # Instalação padrão (sem flag de cloud) continua subindo normalmente —
+  # setup.sh passa --profile with-frontend nesse caso, comportamento de
+  # sempre intocado.
   frontend:
+    profiles: ["with-frontend"]
     build:
       context: ./frontend
       args:

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -83,6 +84,10 @@ func run() error {
 	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
 	go infraService.RunCronSweep(ctx, 1*time.Minute)
 
+	if err := seedCloudConnect(ctx, authService, infraService, cfg); err != nil {
+		slog.Error("configurando modo cloud no boot", "error", err)
+	}
+
 	router := api.NewRouter(serverService, infraService, authService, cfg.AllowedOrigins, cfg.TrustedProxies)
 
 	httpServer := &http.Server{
@@ -112,6 +117,47 @@ func run() error {
 	slog.Info("backend escutando", "addr", cfg.HTTPAddr)
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
+	}
+	return nil
+}
+
+// seedCloudConnect aplica o modo cloud (setup.sh --cloud-token/
+// --integration-key/--cloud-disconnect) uma vez no boot — sobe/derruba o
+// cloudflared e semeia/preserva a chave de integração a partir do que o
+// .env diz agora, sempre idempotente (rodar de novo sem mudar o .env não
+// faz nada). Reusa o mesmo canal de confiança que ADMIN_PASSWORD já usa
+// (env var lida uma vez no boot), sem precisar o setup.sh chamar a API.
+func seedCloudConnect(ctx context.Context, authService *auth.Service, infraService *infra.Service, cfg *config.Config) error {
+	if cfg.CloudflareTunnelToken != "" {
+		status, err := infraService.CloudflareTunnelStatus(ctx)
+		if err != nil {
+			return fmt.Errorf("checando status do túnel cloudflare: %w", err)
+		}
+		if !status.Enabled || !status.Running {
+			if status.Enabled && !status.Running {
+				// Container de uma tentativa anterior morreu/sumiu — limpa
+				// antes de recriar (nome fixo, criar em cima de um restante
+				// falharia por conflito).
+				_ = infraService.DisableCloudflareTunnel(ctx)
+			}
+			if _, err := infraService.EnableCloudflareTunnel(ctx, cfg.CloudflareTunnelToken); err != nil {
+				return fmt.Errorf("subindo cloudflared: %w", err)
+			}
+			slog.Info("cloudflared ativo (modo cloud)")
+		}
+	} else {
+		// CLOUD_MODE desligado (default, ou depois de --cloud-disconnect) —
+		// se sobrou um túnel de uma migração anterior, derruba sozinho.
+		if status, err := infraService.CloudflareTunnelStatus(ctx); err == nil && status.Enabled {
+			if err := infraService.DisableCloudflareTunnel(ctx); err != nil {
+				return fmt.Errorf("desligando cloudflared: %w", err)
+			}
+			slog.Info("cloudflared desligado (modo cloud off)")
+		}
+	}
+
+	if err := authService.SeedIntegrationKeyIfProvided(ctx, cfg.IntegrationKeySeed); err != nil {
+		return fmt.Errorf("semeando chave de integração: %w", err)
 	}
 	return nil
 }

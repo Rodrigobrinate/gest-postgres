@@ -6,7 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@/components/ui/button";
 import { TerminalSquare } from "lucide-react";
-import { API_URL } from "@/lib/api";
+import { API_URL, apiPath } from "@/lib/api";
 
 // Terminal interativo dentro do container, via WebSocket
 // (backend: internal/api/terminal.go, usa EXEC do docker-socket-proxy). Não
@@ -30,7 +30,7 @@ export function TerminalTab({ containerId }: { containerId: string }) {
     term.open(containerRef.current);
     fitAddon.fit();
 
-    const wsUrl = `${API_URL.replace(/^http/, "ws")}/api/v1/infra/containers/${containerId}/exec`;
+    const wsUrl = `${API_URL.replace(/^http/, "ws")}${apiPath(`/api/v1/infra/containers/${containerId}/exec`)}`;
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
 

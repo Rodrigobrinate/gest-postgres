@@ -4,8 +4,13 @@
 #
 # Uso:
 #   sudo ./setup.sh
+#   sudo ./setup.sh --cloud-token <TUNNEL_TOKEN> --integration-key <CHAVE>   # conecta ao sistema mestre na Cloudflare: derruba frontend local, tranca porta, sobe cloudflared
+#   sudo ./setup.sh --cloud-disconnect                                       # reverte pro modo local (frontend + porta publicada de volta)
 #
-# Idempotente: pode rodar de novo sem quebrar nada já instalado/gerado.
+# Idempotente: pode rodar de novo sem quebrar nada já instalado/gerado. Uma
+# vez em modo cloud (via --cloud-token), re-rodar SEM flag nenhuma preserva
+# o modo cloud (fica gravado em CLOUD_MODE no .env) — só --cloud-disconnect
+# reverte.
 
 set -euo pipefail
 
@@ -20,6 +25,29 @@ warn() { echo -e "${c_yellow}!${c_reset} $*"; }
 die()  { echo -e "${c_red}✗ $*${c_reset}" >&2; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "roda como root: sudo ./setup.sh"
+
+# ---------- 0. flags de modo cloud ----------
+CLOUD_TOKEN=""
+CLOUD_INTEGRATION_KEY=""
+CLOUD_DISCONNECT=0
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--cloud-token)
+			CLOUD_TOKEN="${2:-}"; shift 2 ;;
+		--integration-key)
+			CLOUD_INTEGRATION_KEY="${2:-}"; shift 2 ;;
+		--cloud-disconnect)
+			CLOUD_DISCONNECT=1; shift ;;
+		*)
+			die "argumento desconhecido: $1 (uso: --cloud-token <token> --integration-key <chave> | --cloud-disconnect)" ;;
+	esac
+done
+if [[ ( -n "$CLOUD_TOKEN" && -z "$CLOUD_INTEGRATION_KEY" ) || ( -z "$CLOUD_TOKEN" && -n "$CLOUD_INTEGRATION_KEY" ) ]]; then
+	die "--cloud-token e --integration-key precisam vir os dois juntos"
+fi
+if [[ -n "$CLOUD_TOKEN" && "$CLOUD_DISCONNECT" == "1" ]]; then
+	die "--cloud-token e --cloud-disconnect são mutuamente exclusivos"
+fi
 
 if [[ ! -f /etc/os-release ]] || ! grep -qiE '^ID(_LIKE)?=.*(debian)' /etc/os-release; then
 	warn "não parece ser Debian/derivado — seguindo mesmo assim, pode falhar no apt-get"
@@ -144,6 +172,35 @@ fi
 # world-readable num host multiusuário: CREDENTIAL_ENCRYPTION_KEY decifra
 # todo segredo guardado, ADMIN_PASSWORD dá login de admin).
 chmod 600 .env
+
+# ---------- 4.1. modo cloud (--cloud-token / --cloud-disconnect) ----------
+# Só grava no .env aqui — quem de fato sobe o cloudflared e semeia a chave de
+# integração é o próprio backend no boot (lê CLOUDFLARE_TUNNEL_TOKEN/
+# INTEGRATION_KEY_SEED uma vez, ver cmd/api/main.go), reusando o mesmo canal
+# de confiança que ADMIN_PASSWORD já usa — sem precisar o setup.sh fazer
+# login/curl contra uma API que pode nem estar de pé ainda.
+if [[ -n "$CLOUD_TOKEN" ]]; then
+	log "modo cloud: gravando token do túnel e chave de integração no .env"
+	grep -q '^CLOUD_MODE=' .env && sed -i "s/^CLOUD_MODE=.*/CLOUD_MODE=1/" .env || echo "CLOUD_MODE=1" >> .env
+	grep -q '^CLOUDFLARE_TUNNEL_TOKEN=' .env && sed -i "s#^CLOUDFLARE_TUNNEL_TOKEN=.*#CLOUDFLARE_TUNNEL_TOKEN=${CLOUD_TOKEN}#" .env || echo "CLOUDFLARE_TUNNEL_TOKEN=${CLOUD_TOKEN}" >> .env
+	grep -q '^INTEGRATION_KEY_SEED=' .env && sed -i "s#^INTEGRATION_KEY_SEED=.*#INTEGRATION_KEY_SEED=${CLOUD_INTEGRATION_KEY}#" .env || echo "INTEGRATION_KEY_SEED=${CLOUD_INTEGRATION_KEY}" >> .env
+	grep -q '^BACKEND_PORT_PUBLISH=' .env && sed -i "s#^BACKEND_PORT_PUBLISH=.*#BACKEND_PORT_PUBLISH=127.0.0.1:28080:28080#" .env || echo "BACKEND_PORT_PUBLISH=127.0.0.1:28080:28080" >> .env
+	ok "modo cloud gravado no .env (porta do backend vai ficar só em loopback)"
+elif [[ "$CLOUD_DISCONNECT" == "1" ]]; then
+	log "desconectando do modo cloud: restaurando frontend local e porta publicada"
+	grep -q '^CLOUD_MODE=' .env && sed -i "s/^CLOUD_MODE=.*/CLOUD_MODE=0/" .env || echo "CLOUD_MODE=0" >> .env
+	grep -q '^CLOUDFLARE_TUNNEL_TOKEN=' .env && sed -i "s/^CLOUDFLARE_TUNNEL_TOKEN=.*/CLOUDFLARE_TUNNEL_TOKEN=/" .env || true
+	grep -q '^INTEGRATION_KEY_SEED=' .env && sed -i "s/^INTEGRATION_KEY_SEED=.*/INTEGRATION_KEY_SEED=/" .env || true
+	grep -q '^BACKEND_PORT_PUBLISH=' .env && sed -i "s#^BACKEND_PORT_PUBLISH=.*#BACKEND_PORT_PUBLISH=28080:28080#" .env || echo "BACKEND_PORT_PUBLISH=28080:28080" >> .env
+	ok "modo cloud desligado no .env"
+fi
+chmod 600 .env
+
+# CLOUD_MODE_VALUE reflete o .env JÁ ATUALIZADO acima — usado mais adiante
+# pra decidir profile do compose, regra de ufw e derrubar o frontend.
+# Ausente (instalação de antes dessa versão) = "0", mesmo default de sempre.
+CLOUD_MODE_VALUE="$(grep -m1 '^CLOUD_MODE=' .env 2>/dev/null | cut -d= -f2-)"
+CLOUD_MODE_VALUE="${CLOUD_MODE_VALUE:-0}"
 
 # ---------- 4.5. pasta do gerenciador de arquivos do host ----------
 # HOST_FILES_ROOT é a raiz (fora do container) que a aba "Arquivos do host"
@@ -358,12 +415,42 @@ fi
 # GIT_COMMIT embutido no binário do backend (ldflags, ver Dockerfile) — dá
 # pra UI comparar com o HEAD do GitHub e mostrar "atualização disponível".
 export GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
+
+# Modo cloud (CLOUD_MODE=1) não inclui o profile "with-frontend" — o serviço
+# frontend nem builda/sobe. Modo local (default) inclui, comportamento de
+# sempre intocado.
+COMPOSE_PROFILE_ARGS=()
+if [[ "$CLOUD_MODE_VALUE" != "1" ]]; then
+	COMPOSE_PROFILE_ARGS=(--profile with-frontend)
+fi
+
 log "subindo o stack (docker compose up --build -d, commit ${GIT_COMMIT})"
-"$DOCKER" compose up --build -d
+"$DOCKER" compose "${COMPOSE_PROFILE_ARGS[@]}" up --build -d
+
+if [[ "$CLOUD_MODE_VALUE" == "1" ]]; then
+	# Migração de servidor já rodando: se o frontend tava de pé de uma
+	# instalação anterior (modo local), o `up` acima sem o profile não o
+	# derruba sozinho (profile só controla o que SOBE, não o que já tava
+	# rodando) — precisa parar explícito.
+	log "modo cloud: derrubando frontend local (se estava rodando)"
+	"$DOCKER" compose stop frontend >/dev/null 2>&1 || true
+	"$DOCKER" compose rm -f frontend >/dev/null 2>&1 || true
+	if command -v ufw >/dev/null 2>&1; then
+		ufw deny 28080/tcp >/dev/null 2>&1 || true
+		ufw deny 4173/tcp >/dev/null 2>&1 || true
+		ok "ufw: 28080/tcp e 4173/tcp bloqueadas na internet (defesa em profundidade — porta do backend já é loopback-only, acesso de verdade é só via cloudflared)"
+	fi
+elif command -v ufw >/dev/null 2>&1; then
+	# Modo local (default, ou depois de --cloud-disconnect) — remove regras
+	# de bloqueio de uma migração cloud anterior, se existirem. `ufw delete
+	# deny` falha se a regra não existir; sempre com `|| true`, nunca crítico.
+	ufw delete deny 28080/tcp >/dev/null 2>&1 || true
+	ufw delete deny 4173/tcp >/dev/null 2>&1 || true
+fi
 
 log "esperando backend responder em /api/v1/healthz"
 for i in $(seq 1 30); do
-	if curl -fsS http://localhost:28080/api/v1/healthz >/dev/null 2>&1; then
+	if curl -fsS http://127.0.0.1:28080/api/v1/healthz >/dev/null 2>&1; then
 		ok "backend no ar"
 		break
 	fi
@@ -373,8 +460,14 @@ done
 
 echo
 ok "setup concluído"
-echo "  frontend: http://localhost:4173"
-echo "  backend:  http://localhost:28080/api/v1/healthz"
+if [[ "$CLOUD_MODE_VALUE" == "1" ]]; then
+	echo "  modo:     CLOUD — frontend local desligado, acesso só via Cloudflare Tunnel"
+	echo "  backend:  http://127.0.0.1:28080/api/v1/healthz (loopback only)"
+	echo "  reverter: sudo ./setup.sh --cloud-disconnect"
+else
+	echo "  frontend: http://localhost:4173"
+	echo "  backend:  http://localhost:28080/api/v1/healthz"
+fi
 echo "  logs:     docker compose logs -f"
 ADMIN_PASSWORD_SET="$(grep -m1 '^ADMIN_PASSWORD=' .env | cut -d= -f2-)"
 if [[ -n "$ADMIN_PASSWORD_SET" && "$ADMIN_PASSWORD_SET" != "troque-esta-senha" ]]; then

@@ -86,6 +86,15 @@ func (s *Service) collectContainerHistory(containerID string, h *containerHistor
 	ticker := time.NewTicker(containerHistoryInterval)
 	defer ticker.Stop()
 
+	// time.NewTicker só dispara o primeiro tick depois de um intervalo
+	// INTEIRO (15s), nunca na hora — e o gráfico só desenha linha com 2+
+	// pontos (ver hasData no MetricChart), então sem essa amostra
+	// imediata o usuário esperava uns 30-45s (2-3 ciclos) pra ver
+	// qualquer coisa, não os 15s que a mensagem "coletando dados" promete
+	// (achado ao vivo: reportado pelo usuário, "mesmo esperando os 15
+	// segundos"). Amostra fora do loop, antes do primeiro tick.
+	collectOnce(context.Background(), s, containerID, h)
+
 	for range ticker.C {
 		if h.idleFor() > containerHistoryIdleTTL {
 			s.containerHistories.mu.Lock()
@@ -93,23 +102,29 @@ func (s *Service) collectContainerHistory(containerID string, h *containerHistor
 			s.containerHistories.mu.Unlock()
 			return
 		}
-		// Timeout por tick — sem isso, uma chamada de stats que trava (proxy
-		// lento, container num estado estranho) empaca esse goroutine pra
-		// sempre, sem erro nenhum: nunca mais nenhum ponto entra no
-		// histórico, silenciosamente, porque o loop nunca volta pro ticker.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		snap, err := s.docker.ContainerStats(ctx, containerID)
-		cancel()
-		if err != nil {
-			slog.Error("falha coletando stats de container pro histórico", "error", err, "container_id", containerID)
-			continue
-		}
-		h.append(ContainerMetricPoint{
-			Timestamp:      time.Now(),
-			CPUPercent:     snap.CPUPercent,
-			MemoryUsedMB:   snap.MemoryUsedMB,
-			NetworkRxBytes: snap.NetworkRxBytes,
-			NetworkTxBytes: snap.NetworkTxBytes,
-		})
+		collectOnce(context.Background(), s, containerID, h)
 	}
+}
+
+// collectOnce lê um snapshot de stats e adiciona ao histórico — usado tanto
+// pra amostra imediata (fora do ticker) quanto por cada tick.
+func collectOnce(parent context.Context, s *Service, containerID string, h *containerHistory) {
+	// Timeout por chamada — sem isso, uma chamada de stats que trava (proxy
+	// lento, container num estado estranho) empaca esse goroutine pra
+	// sempre, sem erro nenhum: nunca mais nenhum ponto entra no histórico,
+	// silenciosamente, porque o loop nunca volta pro ticker.
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	snap, err := s.docker.ContainerStats(ctx, containerID)
+	if err != nil {
+		slog.Error("falha coletando stats de container pro histórico", "error", err, "container_id", containerID)
+		return
+	}
+	h.append(ContainerMetricPoint{
+		Timestamp:      time.Now(),
+		CPUPercent:     snap.CPUPercent,
+		MemoryUsedMB:   snap.MemoryUsedMB,
+		NetworkRxBytes: snap.NetworkRxBytes,
+		NetworkTxBytes: snap.NetworkTxBytes,
+	})
 }

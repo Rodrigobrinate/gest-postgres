@@ -111,7 +111,7 @@ function AttachVolumeDialog({
     onSuccess: (result) => {
       toast.success("Volume anexado — container recriado com o novo ID");
       onClose();
-      router.push(`/infra/containers/${result.id}`);
+      router.push(`/infra/containers?id=${result.id}`);
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao anexar volume"),
   });

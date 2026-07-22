@@ -15,15 +15,21 @@ type TestDatabaseResult struct {
 	Password string `json:"password"`
 }
 
-// CreateTestDatabase é o botão "Criar banco de teste" — um clique só cria
-// banco + role (mesmo nome pros dois, pra não ter dois valores pra
-// lembrar) + senha, com a role isolada: sem grant nenhum em qualquer outro
-// banco do cluster (comportamento padrão de role recém-criada — a
-// plataforma não concede nada além do que essa função concede aqui) e
-// dono de tudo que existir/for criado no schema public DESSE banco daqui
-// pra frente (ALTER DEFAULT PRIVILEGES cobre tabela/sequence criada
-// depois, não só o que já existe no momento da criação, que é vazio de
-// qualquer forma — banco novo).
+// CreateTestDatabase é o botão "Criar banco de teste" — cria banco + role
+// (mesmo nome pros dois, pra não ter dois valores pra lembrar) + senha, com
+// a role isolada: sem grant nenhum em qualquer outro banco do cluster
+// (comportamento padrão de role recém-criada — a plataforma não concede
+// nada além do que essa função concede aqui) e dona de tudo que
+// existir/for criado no schema public DESSE banco daqui pra frente (ALTER
+// DEFAULT PRIVILEGES cobre tabela/sequence criada depois, não só o que já
+// existe no momento da criação, que é vazio de qualquer forma — banco
+// novo).
+//
+// suffix é o que o usuário digita na UI (prefixo "test_" fixo, só o resto é
+// campo livre — pedido explícito pra dar pra identificar o banco depois em
+// vez de um sufixo hex aleatório sem significado nenhum). Vazio cai pra um
+// sufixo aleatório, só como rede de segurança — a UI não deveria deixar
+// submeter vazio.
 //
 // Não revoga CONNECT do PUBLIC nos outros bancos do cluster — isso
 // restringiria acesso de QUALQUER role já existente na plataforma
@@ -32,15 +38,19 @@ type TestDatabaseResult struct {
 // isolamento de dado (não conseguir ler/escrever nada fora desse banco) já
 // está garantido pela ausência de qualquer GRANT nas tabelas dos outros
 // bancos.
-func (s *Service) CreateTestDatabase(ctx context.Context, id string) (*TestDatabaseResult, error) {
+func (s *Service) CreateTestDatabase(ctx context.Context, id, suffix string) (*TestDatabaseResult, error) {
 	record, err := s.getRunningServer(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	suffix, err := randomHexSuffix(4)
-	if err != nil {
-		return nil, fmt.Errorf("gerando nome: %w", err)
+	if suffix == "" {
+		suffix, err = randomHexSuffix(4)
+		if err != nil {
+			return nil, fmt.Errorf("gerando nome: %w", err)
+		}
+	} else if !identRegex.MatchString(suffix) {
+		return nil, fmt.Errorf("%w: nome %q inválido — use só letra, número e underscore, começando com letra ou underscore", ErrValidation, suffix)
 	}
 	name := "test_" + suffix
 	nameIdent := pgx.Identifier{name}.Sanitize()

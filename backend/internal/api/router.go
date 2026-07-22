@@ -204,6 +204,12 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("GET /api/v1/infra/traefik", infraHandler.TraefikStatus)
 	mux.HandleFunc("POST /api/v1/infra/traefik/enable", infraHandler.EnableTraefik)
 	mux.HandleFunc("POST /api/v1/infra/traefik/disable", infraHandler.DisableTraefik)
+	// Enable/disable mudam a exposição de rede do servidor inteiro (sobe/
+	// derruba o túnel outbound-only) — blast radius alto, mesma régua de
+	// update/apply. Status é só leitura, sem segredo (nunca devolve token).
+	mux.HandleFunc("GET /api/v1/infra/cloudflare-tunnel", infraHandler.CloudflareTunnelStatus)
+	mux.HandleFunc("POST /api/v1/infra/cloudflare-tunnel/enable", requireElevated(infraHandler.EnableCloudflareTunnel))
+	mux.HandleFunc("POST /api/v1/infra/cloudflare-tunnel/disable", requireElevated(infraHandler.DisableCloudflareTunnel))
 	mux.HandleFunc("GET /api/v1/infra/proxy-routes", infraHandler.ListProxyRoutes)
 	mux.HandleFunc("POST /api/v1/infra/proxy-routes", infraHandler.CreateProxyRoute)
 	mux.HandleFunc("DELETE /api/v1/infra/proxy-routes/{routeId}", infraHandler.DeleteProxyRoute)

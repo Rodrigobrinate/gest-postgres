@@ -70,7 +70,7 @@ export function ContainersTab() {
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-2">
                         <Link
-                          href={`/infra/containers/${c.id}`}
+                          href={`/infra/containers?id=${c.id}`}
                           className="truncate font-mono hover:underline"
                         >
                           {c.name}

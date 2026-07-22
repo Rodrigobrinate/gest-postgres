@@ -17,6 +17,10 @@
 /.next/
 /out/
 
+# gerado por scripts/gen-headers.mjs a cada build (ver package.json) —
+# conteúdo depende de NEXT_PUBLIC_API_URL, nunca fixo/versionável.
+/public/_headers
+
 # production
 /build
 

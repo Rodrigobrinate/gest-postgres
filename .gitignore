@@ -24,3 +24,7 @@ Thumbs.db
 *.log
 firewall-agent/firewall-agent
 update-agent/update-agent
+
+# Cloudflare CLI cache (não devia existir aqui, esse repo não usa wrangler
+# diretamente — só o repo irmão gest-postgres-master usa)
+.wrangler/

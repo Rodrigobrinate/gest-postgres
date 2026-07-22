@@ -67,7 +67,7 @@ export function ServerTable() {
         {data.map((server) => (
           <TableRow key={server.id}>
             <TableCell>
-              <Link href={`/servers/${server.id}`} className="hover:underline">
+              <Link href={`/servers?id=${server.id}`} className="hover:underline">
                 <div className="font-medium">{server.name}</div>
               </Link>
               {server.description && (

@@ -1,6 +1,21 @@
 import { clearAllQueryHistory } from "@/lib/use-query-history";
+import { MULTI_SERVER_MODE } from "@/lib/multi-server";
+import { getCurrentServerId } from "@/lib/server-context";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:28080";
+
+// apiPath prefixa `/proxy/{instalação selecionada}` só em MULTI_SERVER_MODE
+// (build pro Cloudflare Pages, atrás do Worker do sistema mestre) — build
+// normal (1 frontend por droplet, API_URL = backend direto) devolve o path
+// intocado, comportamento de sempre. Sem instalação selecionada ainda (usuário
+// na tela de overview), também devolve intocado — só rotas nativas do Worker
+// (ex: listar instalações) são chamadas nesse momento, nunca uma rota
+// /api/v1/* de backend.
+export function apiPath(path: string): string {
+  if (!MULTI_SERVER_MODE) return path;
+  const serverId = getCurrentServerId();
+  return serverId ? `/proxy/${serverId}${path}` : path;
+}
 
 export type ServerStatus =
   | "creating"
@@ -930,7 +945,7 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${apiPath(path)}`, {
     ...init,
     credentials: "include",
     headers: {
@@ -970,7 +985,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // que a tela precisa mostrar — 422 aqui não é erro de protocolo, é resultado
 // de domínio, então não joga ApiError fora o corpo.
 async function requestAllowDomainFailure<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${apiPath(path)}`, {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -1100,8 +1115,11 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
-  createTestDatabase: (id: string) =>
-    request<TestDatabaseResult>(`/api/v1/servers/${id}/databases/test`, { method: "POST" }),
+  createTestDatabase: (id: string, suffix: string) =>
+    request<TestDatabaseResult>(`/api/v1/servers/${id}/databases/test`, {
+      method: "POST",
+      body: JSON.stringify({ suffix }),
+    }),
 
   dropDatabase: (id: string, name: string) =>
     request<void>(`/api/v1/servers/${id}/databases/${encodeURIComponent(name)}`, { method: "DELETE" }),
@@ -1440,7 +1458,7 @@ export const api = {
     request<void>(`/api/v1/servers/${id}/backups/${backupId}`, { method: "DELETE" }),
 
   downloadBackupUrl: (id: string, backupId: string) =>
-    `${API_URL}/api/v1/servers/${id}/backups/${backupId}/download`,
+    `${API_URL}${apiPath(`/api/v1/servers/${id}/backups/${backupId}/download`)}`,
 
   restoreBackup: (id: string, backupId: string, input: RestoreBackupInput) =>
     request<{ status: string }>(`/api/v1/servers/${id}/backups/${backupId}/restore`, {
@@ -1588,7 +1606,7 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(
-      `${API_URL}/api/v1/infra/containers/${id}/files/upload?path=${encodeURIComponent(path)}`,
+      `${API_URL}${apiPath(`/api/v1/infra/containers/${id}/files/upload?path=${encodeURIComponent(path)}`)}`,
       { method: "POST", credentials: "include", body: form }
     );
     if (!res.ok) {
@@ -1608,7 +1626,7 @@ export const api = {
     request<void>(`/api/v1/infra/containers/${id}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
 
   containerFileDownloadUrl: (id: string, path: string) =>
-    `${API_URL}/api/v1/infra/containers/${id}/files/download?path=${encodeURIComponent(path)}`,
+    `${API_URL}${apiPath(`/api/v1/infra/containers/${id}/files/download?path=${encodeURIComponent(path)}`)}`,
 
   listVolumeFiles: (name: string, path: string) =>
     request<FileEntry[]>(`/api/v1/infra/volumes/${name}/files?path=${encodeURIComponent(path)}`),
@@ -1629,7 +1647,7 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     const res = await fetch(
-      `${API_URL}/api/v1/infra/volumes/${name}/files/upload?path=${encodeURIComponent(path)}`,
+      `${API_URL}${apiPath(`/api/v1/infra/volumes/${name}/files/upload?path=${encodeURIComponent(path)}`)}`,
       { method: "POST", credentials: "include", body: form }
     );
     if (!res.ok) {
@@ -1649,7 +1667,7 @@ export const api = {
     request<void>(`/api/v1/infra/volumes/${name}/files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
 
   volumeFileDownloadUrl: (name: string, path: string) =>
-    `${API_URL}/api/v1/infra/volumes/${name}/files/download?path=${encodeURIComponent(path)}`,
+    `${API_URL}${apiPath(`/api/v1/infra/volumes/${name}/files/download?path=${encodeURIComponent(path)}`)}`,
 
   listHostFiles: (path: string) =>
     request<HostFileEntry[]>(`/api/v1/infra/host-files?path=${encodeURIComponent(path)}`),
@@ -1669,7 +1687,7 @@ export const api = {
   uploadHostFile: async (path: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_URL}/api/v1/infra/host-files/upload?path=${encodeURIComponent(path)}`, {
+    const res = await fetch(`${API_URL}${apiPath(`/api/v1/infra/host-files/upload?path=${encodeURIComponent(path)}`)}`, {
       method: "POST",
       credentials: "include",
       body: form,
@@ -1691,7 +1709,7 @@ export const api = {
     request<void>(`/api/v1/infra/host-files?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
 
   hostFileDownloadUrl: (path: string) =>
-    `${API_URL}/api/v1/infra/host-files/download?path=${encodeURIComponent(path)}`,
+    `${API_URL}${apiPath(`/api/v1/infra/host-files/download?path=${encodeURIComponent(path)}`)}`,
 
   listInfraNetworks: () => request<InfraNetwork[]>(`/api/v1/infra/networks`),
 
@@ -1730,7 +1748,7 @@ export const api = {
     }),
 
   volumeBackupDownloadUrl: (name: string, backupId: string) =>
-    `${API_URL}/api/v1/infra/volumes/${name}/backups/${backupId}/download`,
+    `${API_URL}${apiPath(`/api/v1/infra/volumes/${name}/backups/${backupId}/download`)}`,
 
   listComposeProjects: () => request<ComposeProject[]>(`/api/v1/infra/compose`),
 
@@ -1753,7 +1771,7 @@ export const api = {
     const form = new FormData();
     form.append("tag", tag);
     form.append("context", file);
-    const res = await fetch(`${API_URL}/api/v1/infra/build/upload`, {
+    const res = await fetch(`${API_URL}${apiPath("/api/v1/infra/build/upload")}`, {
       method: "POST",
       credentials: "include",
       body: form,

@@ -44,8 +44,17 @@ func (h *DetailHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type createTestDatabaseInput struct {
+	Suffix string `json:"suffix"`
+}
+
 func (h *DetailHandler) CreateTestDatabase(w http.ResponseWriter, r *http.Request) {
-	result, err := h.service.CreateTestDatabase(r.Context(), r.PathValue("id"))
+	var in createTestDatabaseInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	result, err := h.service.CreateTestDatabase(r.Context(), r.PathValue("id"), in.Suffix)
 	if err != nil {
 		writeServiceError(w, err)
 		return

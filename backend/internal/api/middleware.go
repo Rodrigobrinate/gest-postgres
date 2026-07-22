@@ -94,6 +94,31 @@ func withAuth(authService *auth.Service) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+
+			// Authorization: Bearer <chave de integração> — canal
+			// servidor-a-servidor pro futuro Worker do sistema mestre, sem
+			// cookie/CORS envolvidos (ver internal/auth/integration_key.go).
+			// Presente = único caminho tentado: nunca cai pro cookie em
+			// caso de falha, pra não misturar as duas lógicas de erro.
+			if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+				ip := clientIP(r)
+				if serviceKeyThrottle.locked(ip) {
+					httpx.WriteError(w, http.StatusTooManyRequests, "muitas tentativas — aguarde antes de tentar de novo")
+					return
+				}
+				valid, err := authService.ValidateIntegrationKey(r.Context(), bearer)
+				if err != nil || !valid {
+					serviceKeyThrottle.recordFailure(ip)
+					httpx.WriteError(w, http.StatusUnauthorized, "chave de integração inválida")
+					return
+				}
+				serviceKeyThrottle.recordSuccess(ip)
+				ctx := auth.WithSession(r.Context(), auth.NewServiceSession())
+				ctx = withServiceAuth(ctx)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			cookie, err := r.Cookie(sessionCookieName)
 			if err != nil {
 				httpx.WriteError(w, http.StatusUnauthorized, "não autenticado")
@@ -125,6 +150,20 @@ func withAuth(authService *auth.Service) func(http.Handler) http.Handler {
 // deve ter rodado antes (rota tem que estar registrada atrás dele).
 func requireElevated(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Chave de integração NUNCA satisfaz step-up, de propósito — essas
+		// rotas cobrem a maior ação de blast radius de toda a API
+		// (update/apply: git pull + setup.sh como ROOT no host) e exclusão
+		// de arquivo do host. "Tudo que o frontend local faz, o mestre
+		// também faz" (decisão do planejamento desse recurso) vale pra
+		// gestão normal da plataforma, não pra essa faixa — sem isso, uma
+		// chave vazada do lado Cloudflare vira RCE de root instantâneo, sem
+		// nenhuma barreira extra. Fica só pra sessão humana com senha
+		// reconfirmada fisicamente, mesmo se isso significa o mestre não
+		// conseguir disparar essas ações remotamente.
+		if isIntegrationAuthed(r.Context()) {
+			httpx.WriteError(w, http.StatusForbidden, "essa ação exige confirmação de senha local — não disponível via chave de integração")
+			return
+		}
 		sess, ok := auth.SessionFromContext(r.Context())
 		if !ok || !sess.Elevated() {
 			httpx.WriteError(w, http.StatusForbidden, "confirme a senha de novo pra continuar (zona de risco)")

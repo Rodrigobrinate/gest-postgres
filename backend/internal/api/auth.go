@@ -97,6 +97,19 @@ func clientIP(r *http.Request) string {
 	if err != nil {
 		host = r.RemoteAddr
 	}
+	// Requisição autenticada pela chave de integração (Worker do mestre, via
+	// cloudflared): a âncora de confiança é posse da chave, não posição de
+	// rede — isTrustedPeer não se aplica (o IP do container cloudflared na
+	// rede Docker interna não é algo que valha a pena fixar em
+	// TRUSTED_PROXIES). CF-Connecting-IP é o header real que a borda da
+	// Cloudflare injeta, não forjável por quem não seja a própria Cloudflare
+	// nesse caminho (a request só chega aqui através do túnel outbound-only).
+	if isIntegrationAuthed(r.Context()) {
+		if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
+			return cf
+		}
+		return host
+	}
 	if isTrustedPeer(r.RemoteAddr) {
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 			parts := strings.Split(fwd, ",")

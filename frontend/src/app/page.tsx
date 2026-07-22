@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,9 +11,23 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { UsersManager } from "@/components/auth/users-manager";
 import { NotificationChannelsManager } from "@/components/servers/notification-channels-manager";
 import { UpdateChecker } from "@/components/servers/update-checker";
-import { Boxes, Database } from "lucide-react";
+import { Boxes, Database, ArrowLeftRight } from "lucide-react";
+import { MULTI_SERVER_MODE } from "@/lib/multi-server";
+import { useSelectedServer } from "@/lib/server-context";
+import { InstallationsOverview } from "@/components/master/installations-overview";
 
 export default function Home() {
+  // Só em MULTI_SERVER_MODE (build pro Cloudflare Pages) esse hook importa
+  // pra alguma coisa — fora dele, selectedServerId fica sempre null e a
+  // tela de baixo (dashboard de sempre) renderiza direto, sem overview
+  // nenhuma no meio. Comportamento de build normal (1 frontend por
+  // droplet) inteiramente inalterado.
+  const { selectedServerId, selectServer } = useSelectedServer();
+
+  if (MULTI_SERVER_MODE && !selectedServerId) {
+    return <InstallationsOverview />;
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-6 sm:p-10">
       <header className="flex items-center justify-between">
@@ -27,6 +43,12 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {MULTI_SERVER_MODE && (
+            <Button variant="outline" onClick={() => selectServer(null)}>
+              <ArrowLeftRight className="size-4" />
+              Trocar instalação
+            </Button>
+          )}
           <Button variant="outline" render={<Link href="/infra" />}>
             <Boxes className="size-4" />
             Docker
