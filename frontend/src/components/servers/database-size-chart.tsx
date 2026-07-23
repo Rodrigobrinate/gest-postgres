@@ -15,7 +15,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, type MetricPoint } from "@/lib/api";
-import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, type RangeKey } from "./timerange-buttons";
+import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, coverageGapNote, type RangeKey } from "./timerange-buttons";
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -150,6 +150,9 @@ function PerDatabaseChart({
     ? (extendedHistory ?? [])
     : filterByRange(history, rangeMs(range), (p) => new Date(p.timestamp).getTime());
   const zoomedNames = extended ? databaseNames(zoomedData, field) : names;
+  const gapNote = extended
+    ? coverageGapNote(zoomedData[0]?.timestamp, zoomedData[zoomedData.length - 1]?.timestamp, range)
+    : null;
 
   return (
     <>
@@ -192,6 +195,7 @@ function PerDatabaseChart({
               <Chart data={zoomedData} names={zoomedNames} height={340} field={field} formatValue={formatValue} />
             )}
             <p className="text-muted-foreground text-xs">{note}</p>
+            {gapNote && <p className="text-amber-600 text-xs">{gapNote}</p>}
           </DialogContent>
         </Dialog>
       )}

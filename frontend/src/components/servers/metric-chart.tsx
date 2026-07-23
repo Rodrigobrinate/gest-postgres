@@ -14,7 +14,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, type RangeKey } from "./timerange-buttons";
+import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, coverageGapNote, type RangeKey } from "./timerange-buttons";
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -109,6 +109,9 @@ export function MetricChart<T extends PointWithTimestamp>(props: Props<T>) {
   const zoomedData = extended
     ? ((extendedData ?? []) as unknown as T[])
     : filterByRange(data, rangeMs(range), (p) => new Date(p.timestamp).getTime());
+  const gapNote = extended
+    ? coverageGapNote(zoomedData[0]?.timestamp, zoomedData[zoomedData.length - 1]?.timestamp, range)
+    : null;
 
   return (
     <>
@@ -150,6 +153,7 @@ export function MetricChart<T extends PointWithTimestamp>(props: Props<T>) {
                 ? "Dado agregado por hora além das últimas 24h (média/mín/máx) — persistido, sobrevive a reinício do backend."
                 : "Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período acima recorta esse buffer, não busca dados mais antigos."}
             </p>
+            {gapNote && <p className="text-amber-600 text-xs">{gapNote}</p>}
           </DialogContent>
         </Dialog>
       )}

@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Cpu, MemoryStick, HardDrive, Network, PlugZap, Disc } from "lucide-react";
 import { Sparkline } from "./sparkline";
 import { RegisterDialog } from "./discover-servers-dialog";
-import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, type RangeKey } from "./timerange-buttons";
+import { TimeRangeButtons, filterByRange, isBackendRange, rangeMs, coverageGapNote, type RangeKey } from "./timerange-buttons";
 
 function formatClockTime(ms: number) {
   return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -363,6 +363,7 @@ function SparkCard({
   const zoomed = extended
     ? extract(extendedHistory ?? [])
     : filterByRange(points, rangeMs(range), (p) => p.timestamp);
+  const gapNote = extended ? coverageGapNote(zoomed[0]?.timestamp, zoomed[zoomed.length - 1]?.timestamp, range) : null;
 
   return (
     <>
@@ -440,6 +441,7 @@ function SparkCard({
                 ? "Dado agregado por hora além das últimas 24h (média/mín/máx) — persistido, sobrevive a reinício do backend."
                 : "Histórico em memória (~1h a 15s/amostra) — reseta se o backend reiniciar. O período acima recorta esse buffer, não busca dados mais antigos."}
             </p>
+            {gapNote && <p className="text-amber-600 text-xs">{gapNote}</p>}
           </DialogContent>
         </Dialog>
       )}
@@ -488,6 +490,9 @@ function IOPSCard({
     read: p.value,
     write: zoomedWrite[i]?.value ?? 0,
   }));
+  const gapNote = extended
+    ? coverageGapNote(zoomedData[0]?.timestamp, zoomedData[zoomedData.length - 1]?.timestamp, range)
+    : null;
 
   return (
     <>
@@ -576,6 +581,7 @@ function IOPSCard({
               Operações completadas por segundo em /proc/diskstats do host (disco inteiro, não por
               container/partição) — não bytes.
             </p>
+            {gapNote && <p className="text-amber-600 text-xs">{gapNote}</p>}
           </DialogContent>
         </Dialog>
       )}
