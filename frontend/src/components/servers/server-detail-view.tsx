@@ -128,7 +128,7 @@ export function ServerDetailView({ id }: { id: string }) {
           </TabsList>
 
           <TabsContent value="monitoring" className="pt-4">
-            <MonitoringTab serverId={id} database={activeDatabase} />
+            <MonitoringTab serverId={id} database={activeDatabase} hostPort={server.host_port} />
           </TabsContent>
           <TabsContent value="logs" className="pt-4">
             <LogsTab serverId={id} />

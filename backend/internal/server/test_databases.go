@@ -9,7 +9,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type TestDatabaseResult struct {
+// DatabaseCreationResult é a resposta de qualquer fluxo que cria banco +
+// role isolada dona dele (usado tanto por "Novo banco" quanto por "Criar
+// banco de teste") — senha só existe nessa resposta, texto puro, uma vez;
+// não fica guardada na plataforma (mesma regra de qualquer senha de role
+// que não seja o superuser).
+type DatabaseCreationResult struct {
 	Database string `json:"database"`
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -38,7 +43,7 @@ type TestDatabaseResult struct {
 // isolamento de dado (não conseguir ler/escrever nada fora desse banco) já
 // está garantido pela ausência de qualquer GRANT nas tabelas dos outros
 // bancos.
-func (s *Service) CreateTestDatabase(ctx context.Context, id, suffix string) (*TestDatabaseResult, error) {
+func (s *Service) CreateTestDatabase(ctx context.Context, id, suffix string) (*DatabaseCreationResult, error) {
 	record, err := s.getRunningServer(ctx, id)
 	if err != nil {
 		return nil, err
@@ -53,26 +58,50 @@ func (s *Service) CreateTestDatabase(ctx context.Context, id, suffix string) (*T
 		return nil, fmt.Errorf("%w: nome %q inválido — use só letra, número e underscore, começando com letra ou underscore", ErrValidation, suffix)
 	}
 	name := "test_" + suffix
+
+	password, err := s.provisionIsolatedDatabase(ctx, record, name)
+	if err != nil {
+		return nil, err
+	}
+	return &DatabaseCreationResult{Database: name, Username: name, Password: password}, nil
+}
+
+// provisionIsolatedDatabase cria uma role + banco com a role como OWNER,
+// isolada (sem grant nenhum em qualquer outro banco do cluster — comportamento
+// padrão de role recém-criada, a plataforma não concede nada além do que
+// essa função concede aqui) e dona de tudo que existir/for criado no schema
+// public DESSE banco daqui pra frente (ALTER DEFAULT PRIVILEGES cobre
+// tabela/sequence criada depois, não só o que já existe no momento da
+// criação, que é vazio de qualquer forma — banco novo). Usado tanto por
+// "Criar banco de teste" quanto por "Novo banco" (mesmo mecanismo,
+// generalizado por pedido explícito do usuário, 2026-07-23).
+//
+// Não revoga CONNECT do PUBLIC nos outros bancos do cluster — isso
+// restringiria acesso de QUALQUER role já existente na plataforma (mudança
+// ampla e alheia ao pedido). O isolamento de dado (não conseguir ler/escrever
+// nada fora desse banco) já está garantido pela ausência de qualquer GRANT
+// nas tabelas dos outros bancos.
+func (s *Service) provisionIsolatedDatabase(ctx context.Context, record *Server, name string) (string, error) {
 	nameIdent := pgx.Identifier{name}.Sanitize()
 
 	password, err := generatePassword()
 	if err != nil {
-		return nil, fmt.Errorf("gerando senha: %w", err)
+		return "", fmt.Errorf("gerando senha: %w", err)
 	}
 
 	conn, err := s.connectTo(ctx, record, "")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer conn.Close(ctx)
 
 	if _, err := conn.Exec(ctx, "CREATE ROLE "+nameIdent+" WITH LOGIN PASSWORD "+sqlQuoteLiteral(password)); err != nil {
-		return nil, fmt.Errorf("%w: criando usuário: %v", ErrValidation, err)
+		return "", fmt.Errorf("%w: criando usuário: %v", ErrValidation, err)
 	}
 
 	if _, err := conn.Exec(ctx, "CREATE DATABASE "+nameIdent+" OWNER "+nameIdent); err != nil {
 		_, _ = conn.Exec(ctx, "DROP ROLE "+nameIdent)
-		return nil, fmt.Errorf("%w: criando banco: %v", ErrValidation, err)
+		return "", fmt.Errorf("%w: criando banco: %v", ErrValidation, err)
 	}
 
 	// Conecta DENTRO do banco novo pra garantir acesso no schema public —
@@ -84,7 +113,7 @@ func (s *Service) CreateTestDatabase(ctx context.Context, id, suffix string) (*T
 	if err != nil {
 		_, _ = conn.Exec(ctx, "DROP DATABASE "+nameIdent)
 		_, _ = conn.Exec(ctx, "DROP ROLE "+nameIdent)
-		return nil, fmt.Errorf("conectando no banco novo pra conceder acesso: %w", err)
+		return "", fmt.Errorf("conectando no banco novo pra conceder acesso: %w", err)
 	}
 	defer dbConn.Close(ctx)
 
@@ -97,11 +126,11 @@ func (s *Service) CreateTestDatabase(ctx context.Context, id, suffix string) (*T
 		if _, err := dbConn.Exec(ctx, sql); err != nil {
 			_, _ = conn.Exec(ctx, "DROP DATABASE "+nameIdent)
 			_, _ = conn.Exec(ctx, "DROP ROLE "+nameIdent)
-			return nil, fmt.Errorf("%w: concedendo acesso no banco novo: %v", ErrValidation, err)
+			return "", fmt.Errorf("%w: concedendo acesso no banco novo: %v", ErrValidation, err)
 		}
 	}
 
-	return &TestDatabaseResult{Database: name, Username: name, Password: password}, nil
+	return password, nil
 }
 
 func randomHexSuffix(n int) (string, error) {

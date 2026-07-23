@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -29,11 +30,12 @@ func (h *DetailHandler) CreateDatabase(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
 		return
 	}
-	if err := h.service.CreateDatabase(r.Context(), r.PathValue("id"), in.Name); err != nil {
+	result, err := h.service.CreateDatabase(r.Context(), r.PathValue("id"), in.Name)
+	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+	httpx.WriteJSON(w, http.StatusCreated, result)
 }
 
 func (h *DetailHandler) DropDatabase(w http.ResponseWriter, r *http.Request) {
@@ -545,8 +547,18 @@ func (h *DetailHandler) TableRows(w http.ResponseWriter, r *http.Request) {
 
 	limit := parseIntDefault(r.URL.Query().Get("limit"), 50, 1, 500)
 	offset := parseIntDefault(r.URL.Query().Get("offset"), 0, 0, 1_000_000_000)
+	sortColumn := r.URL.Query().Get("sort")
+	sortDesc := r.URL.Query().Get("dir") == "desc"
 
-	result, total, err := h.service.TableRows(r.Context(), id, database, schema, table, limit, offset)
+	var filters []server.RowFilter
+	if raw := r.URL.Query().Get("filters"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &filters); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "parâmetro filters inválido: "+err.Error())
+			return
+		}
+	}
+
+	result, total, err := h.service.TableRows(r.Context(), id, database, schema, table, limit, offset, sortColumn, sortDesc, filters)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -559,6 +571,106 @@ func (h *DetailHandler) TableRows(w http.ResponseWriter, r *http.Request) {
 		"offset":      offset,
 		"duration_ms": result.DurationMs,
 	})
+}
+
+func (h *DetailHandler) TableColumns(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+
+	cols, err := h.service.TableColumns(r.Context(), id, database, schema, table)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	if cols == nil {
+		cols = []server.ColumnMeta{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, cols)
+}
+
+type updateTableRowInput struct {
+	Column string         `json:"column"`
+	Value  any            `json:"value"`
+	PK     map[string]any `json:"pk"`
+}
+
+func (h *DetailHandler) UpdateTableRow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+
+	var in updateTableRowInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if in.Column == "" || len(in.PK) == 0 {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "campos column e pk são obrigatórios")
+		return
+	}
+
+	if err := h.service.UpdateTableRow(r.Context(), id, database, schema, table, in.Column, in.Value, in.PK); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type insertTableRowInput struct {
+	Values map[string]any `json:"values"`
+}
+
+func (h *DetailHandler) InsertTableRow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+
+	var in insertTableRowInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+
+	result, err := h.service.InsertTableRow(r.Context(), id, database, schema, table, in.Values)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
+		"columns": result.Columns,
+		"rows":    result.Rows,
+	})
+}
+
+type deleteTableRowInput struct {
+	PK map[string]any `json:"pk"`
+}
+
+func (h *DetailHandler) DeleteTableRow(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	database := r.URL.Query().Get("database")
+	schema := r.PathValue("schema")
+	table := r.PathValue("table")
+
+	var in deleteTableRowInput
+	if err := httpx.DecodeJSON(r, &in); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "corpo da requisição inválido: "+err.Error())
+		return
+	}
+	if len(in.PK) == 0 {
+		httpx.WriteError(w, http.StatusUnprocessableEntity, "campo pk é obrigatório")
+		return
+	}
+
+	if err := h.service.DeleteTableRow(r.Context(), id, database, schema, table, in.PK); err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type runQueryInput struct {

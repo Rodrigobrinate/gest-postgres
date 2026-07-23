@@ -18,17 +18,11 @@ type ContainerMetricPoint struct {
 const (
 	containerHistoryMaxLen   = 240 // ~1h a 15s/amostra, mesma janela do resto da plataforma
 	containerHistoryInterval = 15 * time.Second
-	// "todo container do host" é um conjunto sem limite, diferente dos
-	// servidores gerenciados (sempre coletados) — um coletor por container
-	// pra sempre desperdiçaria goroutine/CPU pra containers que ninguém
-	// olha. Cada coletor se auto-encerra depois desse tempo sem leitura.
-	containerHistoryIdleTTL = 10 * time.Minute
 )
 
 type containerHistory struct {
-	mu       sync.Mutex
-	points   []ContainerMetricPoint
-	lastRead time.Time
+	mu     sync.Mutex
+	points []ContainerMetricPoint
 }
 
 func (h *containerHistory) append(p ContainerMetricPoint) {
@@ -43,16 +37,9 @@ func (h *containerHistory) append(p ContainerMetricPoint) {
 func (h *containerHistory) get() []ContainerMetricPoint {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.lastRead = time.Now()
 	out := make([]ContainerMetricPoint, len(h.points))
 	copy(out, h.points)
 	return out
-}
-
-func (h *containerHistory) idleFor() time.Duration {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return time.Since(h.lastRead)
 }
 
 type containerHistories struct {
@@ -64,50 +51,84 @@ func newContainerHistories() *containerHistories {
 	return &containerHistories{items: make(map[string]*containerHistory)}
 }
 
-// ContainerStatsHistory devolve o histórico curto de um container e, na
-// primeira leitura, dispara o coletor em background pra esse container
-// (idempotente — leituras seguintes reusam o mesmo coletor).
+// ContainerStatsHistory devolve o histórico de um container — coletado em
+// background pra TODO container do host (ver RunContainerMetricsCollector),
+// igual ao histórico de servidor Postgres gerenciado, não mais sob demanda
+// só quando alguém abre a aba Estatísticas. Container que ainda não
+// completou a primeira amostra (acabou de subir, ou o coletor de fundo
+// ainda não rodou) devolve vazio, não erro.
 func (s *Service) ContainerStatsHistory(ctx context.Context, containerID string) []ContainerMetricPoint {
 	s.containerHistories.mu.Lock()
 	h, exists := s.containerHistories.items[containerID]
-	if !exists {
-		h = &containerHistory{lastRead: time.Now()}
-		s.containerHistories.items[containerID] = h
-	}
 	s.containerHistories.mu.Unlock()
-
 	if !exists {
-		go s.collectContainerHistory(containerID, h)
+		return nil
 	}
 	return h.get()
 }
 
-func (s *Service) collectContainerHistory(containerID string, h *containerHistory) {
-	ticker := time.NewTicker(containerHistoryInterval)
+// RunContainerMetricsCollector roda em background (chamado uma vez no main,
+// mesmo padrão do RunMetricsCollector de servidor Postgres) — amostra
+// CPU/mem/rede de TODO container rodando no host a cada `interval`, sempre
+// ligado, independente de alguém ter aberto a aba Estatísticas daquele
+// container. Histórico de container que parou/sumiu do host é descartado no
+// mesmo ciclo (evita vazar memória pra sempre num host com bastante
+// rotatividade de container).
+func (s *Service) RunContainerMetricsCollector(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// time.NewTicker só dispara o primeiro tick depois de um intervalo
-	// INTEIRO (15s), nunca na hora — e o gráfico só desenha linha com 2+
-	// pontos (ver hasData no MetricChart), então sem essa amostra
-	// imediata o usuário esperava uns 30-45s (2-3 ciclos) pra ver
-	// qualquer coisa, não os 15s que a mensagem "coletando dados" promete
-	// (achado ao vivo: reportado pelo usuário, "mesmo esperando os 15
-	// segundos"). Amostra fora do loop, antes do primeiro tick.
-	collectOnce(context.Background(), s, containerID, h)
-
-	for range ticker.C {
-		if h.idleFor() > containerHistoryIdleTTL {
-			s.containerHistories.mu.Lock()
-			delete(s.containerHistories.items, containerID)
-			s.containerHistories.mu.Unlock()
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			s.collectAllContainerHistory(ctx)
 		}
-		collectOnce(context.Background(), s, containerID, h)
 	}
 }
 
-// collectOnce lê um snapshot de stats e adiciona ao histórico — usado tanto
-// pra amostra imediata (fora do ticker) quanto por cada tick.
+func (s *Service) collectAllContainerHistory(ctx context.Context) {
+	containers, err := s.docker.ListAllContainers(ctx)
+	if err != nil {
+		slog.Warn("coleta de histórico de container: falha listando containers", "error", err)
+		return
+	}
+
+	running := make(map[string]bool, len(containers))
+	var wg sync.WaitGroup
+	for _, c := range containers {
+		if c.State != "running" {
+			continue
+		}
+		running[c.ID] = true
+
+		s.containerHistories.mu.Lock()
+		h, exists := s.containerHistories.items[c.ID]
+		if !exists {
+			h = &containerHistory{}
+			s.containerHistories.items[c.ID] = h
+		}
+		s.containerHistories.mu.Unlock()
+
+		wg.Add(1)
+		go func(containerID string, h *containerHistory) {
+			defer wg.Done()
+			collectOnce(ctx, s, containerID, h)
+		}(c.ID, h)
+	}
+	wg.Wait()
+
+	s.containerHistories.mu.Lock()
+	for id := range s.containerHistories.items {
+		if !running[id] {
+			delete(s.containerHistories.items, id)
+		}
+	}
+	s.containerHistories.mu.Unlock()
+}
+
+// collectOnce lê um snapshot de stats e adiciona ao histórico.
 func collectOnce(parent context.Context, s *Service, containerID string, h *containerHistory) {
 	// Timeout por chamada — sem isso, uma chamada de stats que trava (proxy
 	// lento, container num estado estranho) empaca esse goroutine pra

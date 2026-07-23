@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -146,10 +147,76 @@ func (s *Service) ListTables(ctx context.Context, id, database string) ([]TableI
 	return tables, rows.Err()
 }
 
-// TableRows retorna uma página de dados da tabela, mais o total de linhas.
-// Total é count(*) exato — aceitável no MVP, mas fica lento em tabelas
-// gigantes; trocar por estimativa via pg_class.reltuples se virar problema.
-func (s *Service) TableRows(ctx context.Context, id, database, schema, table string, limit, offset int) (*QueryResult, int64, error) {
+// RowFilter é um filtro simples de coluna pro grid de dados da tabela (tipo
+// Prisma Studio) — WHERE column op value. Column vira identificador
+// sanitizado (pgx.Identifier.Sanitize, mesma defesa de CreateTable/DropTable);
+// op é resolvido contra allowedFilterOps (whitelist fixa, nunca texto do
+// usuário vira SQL); value sempre vira parâmetro ligado ($n), nunca
+// concatenado — mesmo pro contains, que só monta o padrão ILIKE em Go antes
+// de virar parâmetro.
+type RowFilter struct {
+	Column string `json:"column"`
+	Op     string `json:"op"`
+	Value  string `json:"value"`
+}
+
+// allowedFilterOps mapeia operador (vindo do frontend) pro operador SQL —
+// nunca interpola o texto do operador vindo do usuário direto na query.
+var allowedFilterOps = map[string]string{
+	"eq":          "=",
+	"neq":         "<>",
+	"gt":          ">",
+	"gte":         ">=",
+	"lt":          "<",
+	"lte":         "<=",
+	"contains":    "ILIKE",
+	"is_null":     "IS NULL",
+	"is_not_null": "IS NOT NULL",
+}
+
+func buildRowFilterSQL(filters []RowFilter) (string, []any, error) {
+	if len(filters) == 0 {
+		return "", nil, nil
+	}
+	var clauses []string
+	var args []any
+	for _, f := range filters {
+		if !identRegex.MatchString(f.Column) {
+			return "", nil, fmt.Errorf("%w: coluna de filtro %q inválida", ErrValidation, f.Column)
+		}
+		opSQL, ok := allowedFilterOps[f.Op]
+		if !ok {
+			return "", nil, fmt.Errorf("%w: operador de filtro %q inválido", ErrValidation, f.Op)
+		}
+		colIdent := pgx.Identifier{f.Column}.Sanitize()
+		switch f.Op {
+		case "is_null", "is_not_null":
+			clauses = append(clauses, fmt.Sprintf("%s %s", colIdent, opSQL))
+		case "contains":
+			args = append(args, "%"+f.Value+"%")
+			// ::text — ILIKE exige texto dos dois lados; único operador que
+			// precisa de cast explícito na coluna (os outros deixam o
+			// parâmetro sem tipo, Postgres infere pelo tipo real da coluna,
+			// o que preserva comparação numérica/data em vez de virar
+			// comparação lexicográfica de texto).
+			clauses = append(clauses, fmt.Sprintf("%s::text %s $%d", colIdent, opSQL, len(args)))
+		default:
+			args = append(args, f.Value)
+			clauses = append(clauses, fmt.Sprintf("%s %s $%d", colIdent, opSQL, len(args)))
+		}
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args, nil
+}
+
+// TableRows retorna uma página de dados da tabela, mais o total de linhas —
+// com ordenação e filtro simples por coluna (grid tipo Prisma Studio, pedido
+// explícito do usuário, 2026-07-22). Total é count(*) exato (com o mesmo
+// WHERE do filtro) — aceitável no MVP, mas fica lento em tabelas gigantes;
+// trocar por estimativa via pg_class.reltuples se virar problema.
+func (s *Service) TableRows(
+	ctx context.Context, id, database, schema, table string,
+	limit, offset int, sortColumn string, sortDesc bool, filters []RowFilter,
+) (*QueryResult, int64, error) {
 	record, err := s.getRunningServer(ctx, id)
 	if err != nil {
 		return nil, 0, err
@@ -162,22 +229,41 @@ func (s *Service) TableRows(ctx context.Context, id, database, schema, table str
 
 	ident := pgx.Identifier{schema, table}.Sanitize()
 
-	var total int64
-	if err := conn.QueryRow(ctx, "SELECT count(*) FROM "+ident).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("contando linhas de %s: %w", ident, err)
+	whereClause, args, err := buildRowFilterSQL(filters)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	result, err := runAndCollect(ctx, conn, fmt.Sprintf("SELECT * FROM %s LIMIT %d OFFSET %d", ident, limit, offset))
+	var orderClause string
+	if sortColumn != "" {
+		if !identRegex.MatchString(sortColumn) {
+			return nil, 0, fmt.Errorf("%w: coluna de ordenação %q inválida", ErrValidation, sortColumn)
+		}
+		dir := "ASC"
+		if sortDesc {
+			dir = "DESC"
+		}
+		orderClause = fmt.Sprintf(" ORDER BY %s %s", pgx.Identifier{sortColumn}.Sanitize(), dir)
+	}
+
+	var total int64
+	countSQL := "SELECT count(*) FROM " + ident + whereClause
+	if err := conn.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+
+	dataSQL := fmt.Sprintf("SELECT * FROM %s%s%s LIMIT %d OFFSET %d", ident, whereClause, orderClause, limit, offset)
+	result, err := runAndCollect(ctx, conn, dataSQL, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 	return result, total, nil
 }
 
-func runAndCollect(ctx context.Context, conn *pgx.Conn, sql string) (*QueryResult, error) {
+func runAndCollect(ctx context.Context, conn *pgx.Conn, sql string, args ...any) (*QueryResult, error) {
 	start := time.Now()
 
-	rows, err := conn.Query(ctx, sql)
+	rows, err := conn.Query(ctx, sql, args...)
 	if err != nil {
 		// Erro de sintaxe, tabela inexistente, permissão negada etc — é o
 		// usuário que escreveu a query errada, não um bug da plataforma. Marca

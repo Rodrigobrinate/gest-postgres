@@ -42,7 +42,15 @@ function healthColor(score: number) {
   return "text-red-600";
 }
 
-export function MonitoringTab({ serverId, database }: { serverId: string; database: string }) {
+export function MonitoringTab({
+  serverId,
+  database,
+  hostPort,
+}: {
+  serverId: string;
+  database: string;
+  hostPort: number;
+}) {
   const { data: stats } = useQuery({
     queryKey: ["servers", serverId, "stats"],
     queryFn: () => api.stats(serverId),
@@ -74,13 +82,21 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
     queryClient.invalidateQueries({ queryKey: ["servers", serverId, "databases"] });
   };
 
+  // "Novo banco" agora também cria uma role isolada dona dele (mesmo
+  // mecanismo do "Criar banco de teste" — pedido explícito do usuário,
+  // 2026-07-23, generalizando pra qualquer criação de banco) e reusa o
+  // MESMO dialog de resultado (testDbResult) pra mostrar usuário/senha/
+  // connection string prontos — senha só existe nessa resposta, não fica
+  // guardada na plataforma.
   const createDb = useMutation({
     mutationFn: () => api.createDatabase(serverId, newDbName),
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success(`Banco "${newDbName}" criado`);
       setNewDbOpen(false);
       setNewDbName("");
+      setTestDbResult(result);
       invalidateDbs();
+      queryClient.invalidateQueries({ queryKey: ["servers", serverId, "roles"] });
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : "Falha ao criar banco"),
   });
@@ -502,7 +518,7 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
       <Dialog open={!!testDbResult} onOpenChange={(v) => !v && setTestDbResult(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Banco de teste criado</DialogTitle>
+            <DialogTitle>Banco criado</DialogTitle>
           </DialogHeader>
           <p className="text-muted-foreground text-xs">
             Usuário criado com acesso só a esse banco. A senha não fica guardada na plataforma —
@@ -512,13 +528,23 @@ export function MonitoringTab({ serverId, database }: { serverId: string; databa
             <Field label="Banco" value={testDbResult?.database ?? ""} />
             <Field label="Usuário" value={testDbResult?.username ?? ""} />
             <Field label="Senha" value={testDbResult?.password ?? ""} />
+            {testDbResult && (
+              <Field
+                label="Connection string"
+                value={`postgresql://${testDbResult.username}:${testDbResult.password}@${
+                  typeof window !== "undefined" ? window.location.hostname : "localhost"
+                }:${hostPort}/${testDbResult.database}`}
+              />
+            )}
           </div>
           <DialogFooter>
             <Button
               onClick={() => {
                 if (testDbResult) {
+                  const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
+                  const connectionString = `postgresql://${testDbResult.username}:${testDbResult.password}@${host}:${hostPort}/${testDbResult.database}`;
                   navigator.clipboard.writeText(
-                    `banco: ${testDbResult.database}\nusuário: ${testDbResult.username}\nsenha: ${testDbResult.password}`
+                    `banco: ${testDbResult.database}\nusuário: ${testDbResult.username}\nsenha: ${testDbResult.password}\nconnection string: ${connectionString}`
                   );
                   toast.success("Copiado");
                 }

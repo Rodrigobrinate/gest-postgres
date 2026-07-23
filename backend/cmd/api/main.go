@@ -84,6 +84,7 @@ func run() error {
 
 	infraService := infra.NewService(dockerClient, pool, cfg.ManagedNetworkName, secretBox)
 	go infraService.RunCronSweep(ctx, 1*time.Minute)
+	go infraService.RunContainerMetricsCollector(ctx, 15*time.Second)
 
 	if err := seedCloudConnect(ctx, authService, infraService, cfg); err != nil {
 		slog.Error("configurando modo cloud no boot", "error", err)

@@ -4,23 +4,14 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
-import { formatCell, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Table2, Trash2 } from "lucide-react";
 import { CreateTableDialog } from "../create-table-dialog";
+import { TableDataGrid } from "../table-data-grid";
 import { TableTriggers } from "../table-triggers";
 import { RetentionPolicies } from "../retention-policies";
-
-const PAGE_SIZE = 50;
 
 export function TablesTab({ serverId, database }: { serverId: string; database: string }) {
   const { data: tables, isLoading } = useQuery({
@@ -30,22 +21,9 @@ export function TablesTab({ serverId, database }: { serverId: string; database: 
   });
 
   const [selected, setSelected] = useState<{ schema: string; name: string } | null>(null);
-  const [page, setPage] = useState(0);
-
-  const { data: rowsResult, isLoading: rowsLoading } = useQuery({
-    queryKey: ["servers", serverId, "tableRows", database, selected?.schema, selected?.name, page],
-    queryFn: () =>
-      api.tableRows(serverId, selected!.schema, selected!.name, {
-        database,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
-      }),
-    enabled: !!selected,
-  });
 
   function selectTable(schema: string, name: string) {
     setSelected({ schema, name });
-    setPage(0);
   }
 
   const queryClient = useQueryClient();
@@ -114,55 +92,15 @@ export function TablesTab({ serverId, database }: { serverId: string; database: 
         <CardContent className="p-0">
           {!selected ? (
             <p className="text-muted-foreground p-6 text-sm">Escolhe uma tabela pra ver os dados.</p>
-          ) : rowsLoading || !rowsResult ? (
-            <p className="text-muted-foreground p-6 text-sm">Carregando...</p>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      {rowsResult.columns.map((c) => (
-                        <TableHead key={c}>{c}</TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rowsResult.rows.map((row, i) => (
-                      <TableRow key={i}>
-                        {row.map((cell, j) => (
-                          <TableCell key={j} className="font-mono text-xs whitespace-nowrap">
-                            {formatCell(cell)}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex items-center justify-between border-t p-3">
-                <p className="text-muted-foreground text-xs">
-                  {rowsResult.total_rows} linha(s) — página {page + 1}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={page === 0}
-                    onClick={() => setPage((p) => p - 1)}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={(page + 1) * PAGE_SIZE >= rowsResult.total_rows}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Próxima
-                  </Button>
-                </div>
-              </div>
+              <TableDataGrid
+                key={`${selected.schema}.${selected.name}`}
+                serverId={serverId}
+                database={database}
+                schema={selected.schema}
+                table={selected.name}
+              />
               <TableTriggers
                 serverId={serverId}
                 database={database}

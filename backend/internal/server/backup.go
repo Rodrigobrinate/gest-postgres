@@ -317,7 +317,7 @@ func (s *Service) RestoreBackup(ctx context.Context, serverID, backupID string, 
 		if !identRegex.MatchString(in.NewDatabaseName) {
 			return fmt.Errorf("%w: nome de banco novo inválido", ErrValidation)
 		}
-		if err := s.CreateDatabase(ctx, serverID, in.NewDatabaseName); err != nil {
+		if err := s.createPlainDatabase(ctx, serverID, in.NewDatabaseName); err != nil {
 			return err
 		}
 		targetDB = in.NewDatabaseName

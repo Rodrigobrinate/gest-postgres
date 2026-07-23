@@ -152,6 +152,26 @@ export interface TableRowsResult {
   duration_ms: number;
 }
 
+export interface ColumnMeta {
+  name: string;
+  data_type: string;
+  is_nullable: boolean;
+  is_primary_key: boolean;
+}
+
+export type RowFilterOp = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains" | "is_null" | "is_not_null";
+
+export interface RowFilter {
+  column: string;
+  op: RowFilterOp;
+  value: string;
+}
+
+export interface InsertRowResult {
+  columns: string[];
+  rows: unknown[][];
+}
+
 export interface ActivitySession {
   pid: number;
   username: string;
@@ -301,7 +321,7 @@ export interface DatabaseSize {
   size_bytes: number;
 }
 
-export interface TestDatabaseResult {
+export interface DatabaseCreationResult {
   database: string;
   username: string;
   password: string;
@@ -1128,13 +1148,13 @@ export const api = {
   listDatabases: (id: string) => request<string[]>(`/api/v1/servers/${id}/databases`),
 
   createDatabase: (id: string, name: string) =>
-    request<{ status: string }>(`/api/v1/servers/${id}/databases`, {
+    request<DatabaseCreationResult>(`/api/v1/servers/${id}/databases`, {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
 
   createTestDatabase: (id: string, suffix: string) =>
-    request<TestDatabaseResult>(`/api/v1/servers/${id}/databases/test`, {
+    request<DatabaseCreationResult>(`/api/v1/servers/${id}/databases/test`, {
       method: "POST",
       body: JSON.stringify({ suffix }),
     }),
@@ -1169,17 +1189,70 @@ export const api = {
     id: string,
     schema: string,
     table: string,
-    opts: { database: string; limit?: number; offset?: number }
+    opts: {
+      database: string;
+      limit?: number;
+      offset?: number;
+      sort?: string;
+      dir?: "asc" | "desc";
+      filters?: RowFilter[];
+    }
   ) => {
     const params = new URLSearchParams({
       database: opts.database,
       limit: String(opts.limit ?? 50),
       offset: String(opts.offset ?? 0),
     });
+    if (opts.sort) params.set("sort", opts.sort);
+    if (opts.dir) params.set("dir", opts.dir);
+    if (opts.filters && opts.filters.length > 0) params.set("filters", JSON.stringify(opts.filters));
     return request<TableRowsResult>(
       `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/rows?${params}`
     );
   },
+
+  tableColumns: (id: string, database: string, schema: string, table: string) =>
+    request<ColumnMeta[]>(
+      `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/columns?database=${encodeURIComponent(database)}`
+    ),
+
+  insertTableRow: (
+    id: string,
+    database: string,
+    schema: string,
+    table: string,
+    values: Record<string, unknown>
+  ) =>
+    request<InsertRowResult>(
+      `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/rows?database=${encodeURIComponent(database)}`,
+      { method: "POST", body: JSON.stringify({ values }) }
+    ),
+
+  updateTableRow: (
+    id: string,
+    database: string,
+    schema: string,
+    table: string,
+    column: string,
+    value: unknown,
+    pk: Record<string, unknown>
+  ) =>
+    request<{ status: string }>(
+      `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/rows?database=${encodeURIComponent(database)}`,
+      { method: "PATCH", body: JSON.stringify({ column, value, pk }) }
+    ),
+
+  deleteTableRow: (
+    id: string,
+    database: string,
+    schema: string,
+    table: string,
+    pk: Record<string, unknown>
+  ) =>
+    request<void>(
+      `/api/v1/servers/${id}/tables/${encodeURIComponent(schema)}/${encodeURIComponent(table)}/rows?database=${encodeURIComponent(database)}`,
+      { method: "DELETE", body: JSON.stringify({ pk }) }
+    ),
 
   runQuery: (id: string, database: string, sql: string) =>
     request<QueryResult>(`/api/v1/servers/${id}/query`, {
