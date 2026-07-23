@@ -238,9 +238,31 @@ check_subnet_free() {
 	[[ -z "$probe_dev" || "$probe_dev" == "$default_dev" ]]
 }
 
+# subnet_owned_by_us: as redes gestpg-internal/gestpg-managed não são
+# derrubadas entre execuções do setup.sh — então, a partir da 2ª execução
+# (toda atualização), `ip route` sempre vai achar uma rota específica pra
+# essa faixa: a NOSSA rede, já subida da vez anterior. Sem essa checagem,
+# check_subnet_free trataria a própria rede do projeto como colisão e
+# NUNCA deixaria uma atualização passar depois da 1ª instalação bem-sucedida.
+# Só considera "nossa" se o nome da rede E o subnet baterem exatamente com o
+# que o .env pede agora — se alguém mudou GESTPG_*_SUBNET no .env sem recriar
+# a rede (ainda na faixa antiga), isso não bate e cai pro check_subnet_free
+# de verdade contra a faixa nova.
+subnet_owned_by_us() {
+	local network_name="$1" subnet="$2"
+	local existing
+	existing="$(docker network inspect "$network_name" --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null || true)"
+	[[ -n "$existing" && "$existing" == "$subnet" ]]
+}
+
 if command -v ip >/dev/null 2>&1; then
 	log "conferindo se as sub-redes do docker-compose já não estão em uso no host"
-	for subnet in "$GESTPG_INTERNAL_SUBNET_VALUE" "$GESTPG_MANAGED_SUBNET_VALUE"; do
+	for pair in "gestpg-internal:$GESTPG_INTERNAL_SUBNET_VALUE" "gestpg-managed:$GESTPG_MANAGED_SUBNET_VALUE"; do
+		net_name="${pair%%:*}"
+		subnet="${pair#*:}"
+		if subnet_owned_by_us "$net_name" "$subnet"; then
+			continue
+		fi
 		if ! check_subnet_free "$subnet"; then
 			die "sub-rede $subnet já parece estar em uso nesse host (rota específica encontrada, diferente da rota default) — troca GESTPG_INTERNAL_SUBNET/GESTPG_MANAGED_SUBNET no .env pra uma faixa livre antes de continuar. Isso já derrubou serviço de monitoramento de um usuário — NUNCA sobe com uma faixa que colide"
 		fi
