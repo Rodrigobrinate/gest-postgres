@@ -19,31 +19,72 @@ function formatBytes(bytes: number) {
   return `${bytes} B`;
 }
 
+// Verde/amarelo/vermelho por faixa de uso — mesma convenção de "semáforo"
+// que já existe noutros pontos do dashboard local (ex: valor ao vivo
+// ficando vermelho/verde comparado ao poll anterior).
+function ringColor(percent: number): string {
+  if (percent >= 85) return "#ef4444"; // vermelho
+  if (percent >= 60) return "#eab308"; // amarelo
+  return "#22c55e"; // verde
+}
+
+function Ring({ percent, label }: { percent: number | undefined; label: string }) {
+  const size = 44;
+  const strokeWidth = 4;
+  const radius = size / 2 - strokeWidth;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.min(100, Math.max(0, percent ?? 0));
+  const offset = circumference - (clamped / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            strokeWidth={strokeWidth}
+            fill="none"
+            className="stroke-muted"
+          />
+          {percent !== undefined && (
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              strokeWidth={strokeWidth}
+              fill="none"
+              stroke={ringColor(percent)}
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              strokeLinecap="round"
+            />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium">
+          {percent !== undefined ? `${Math.round(percent)}%` : "—"}
+        </div>
+      </div>
+      <span className="text-muted-foreground text-xs">{label}</span>
+    </div>
+  );
+}
+
 function StatsRow({ stats }: { stats: MasterServerStats }) {
   const memPercent =
     stats.total_memory_limit_mb && stats.total_memory_used_mb
-      ? Math.round((stats.total_memory_used_mb / stats.total_memory_limit_mb) * 100)
+      ? (stats.total_memory_used_mb / stats.total_memory_limit_mb) * 100
       : undefined;
   const diskPercent =
     stats.disk_total_bytes && stats.disk_used_bytes
-      ? Math.round((stats.disk_used_bytes / stats.disk_total_bytes) * 100)
+      ? (stats.disk_used_bytes / stats.disk_total_bytes) * 100
       : undefined;
   return (
-    <div className="text-muted-foreground grid grid-cols-3 gap-2 text-xs">
-      <div>
-        <div className="text-foreground font-medium">
-          {stats.total_cpu_percent !== undefined ? `${stats.total_cpu_percent.toFixed(1)}%` : "—"}
-        </div>
-        <div>CPU</div>
-      </div>
-      <div>
-        <div className="text-foreground font-medium">{memPercent !== undefined ? `${memPercent}%` : "—"}</div>
-        <div>Memória</div>
-      </div>
-      <div>
-        <div className="text-foreground font-medium">{diskPercent !== undefined ? `${diskPercent}%` : "—"}</div>
-        <div>Disco{stats.disk_total_bytes ? ` de ${formatBytes(stats.disk_total_bytes)}` : ""}</div>
-      </div>
+    <div className="flex items-start justify-around gap-2">
+      <Ring percent={stats.total_cpu_percent} label="CPU" />
+      <Ring percent={memPercent} label="Memória" />
+      <Ring percent={diskPercent} label={stats.disk_total_bytes ? `Disco (${formatBytes(stats.disk_total_bytes)})` : "Disco"} />
     </div>
   );
 }
