@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateInstallationDialog } from "./create-installation-dialog";
 import { EditInstallationDialog } from "./edit-installation-dialog";
-import { Database, Trash2 } from "lucide-react";
-import type { MasterServerStats } from "@/lib/master-api";
+import { Database, Trash2, Radar } from "lucide-react";
+import type { MasterServerStats, PingResult } from "@/lib/master-api";
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -78,6 +78,15 @@ export function InstallationsOverview() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "Falha ao remover"),
   });
 
+  // Ping manual — pedido explícito: testar na hora, pela própria UI, sem
+  // depender de curl/log externo pra saber o motivo exato de um "offline"
+  // (status HTTP, latência, mensagem de erro crua do fetch).
+  const pingMutation = useMutation({
+    mutationFn: () => masterApi.pingAll(),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Falha ao testar"),
+  });
+  const pingResults = pingMutation.data;
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-6 sm:p-10">
       <header className="flex items-center justify-between">
@@ -91,10 +100,33 @@ export function InstallationsOverview() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => pingMutation.mutate()} disabled={pingMutation.isPending}>
+            <Radar className="size-4" />
+            {pingMutation.isPending ? "Testando..." : "Testar conexão"}
+          </Button>
           <CreateInstallationDialog />
           <LogoutButton />
         </div>
       </header>
+
+      {pingResults && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Resultado do teste</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pingResults.map((r: PingResult) => (
+              <div key={r.id} className="flex items-center justify-between gap-4 text-sm">
+                <span className="font-medium">{r.name}</span>
+                <span className="text-muted-foreground truncate font-mono text-xs">{r.tunnel_hostname}</span>
+                <Badge variant={r.ok ? "default" : "destructive"}>
+                  {r.ok ? `${r.status} · ${r.ms}ms` : (r.error ?? `status ${r.status}`)}
+                </Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {isLoading && <p className="text-muted-foreground text-sm">Carregando instalações...</p>}
       {error && (

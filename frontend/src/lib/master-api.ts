@@ -63,6 +63,20 @@ export interface UpdateMasterServerInput {
   tunnel_hostname: string;
 }
 
+// pingAll dispara uma checagem MANUAL, na hora, de todas as instalações —
+// pedido explícito pra não depender de alguém rodando curl/log toda vez que
+// o online/offline do card não bate com o que se vê de fora. Devolve o
+// erro/status cru, não só um booleano.
+export interface PingResult {
+  id: string;
+  name: string;
+  tunnel_hostname: string;
+  ok: boolean;
+  status?: number;
+  ms: number;
+  error?: string;
+}
+
 export const masterApi = {
   listServers: () => masterRequest<MasterServerSummary[]>("/servers"),
   createServer: (input: CreateMasterServerInput) =>
@@ -70,4 +84,5 @@ export const masterApi = {
   updateServer: (id: string, input: UpdateMasterServerInput) =>
     masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteServer: (id: string) => masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "DELETE" }),
+  pingAll: () => masterRequest<PingResult[]>("/servers/ping", { method: "POST" }),
 };
