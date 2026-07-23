@@ -29,6 +29,7 @@ async function masterRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: "include",
+    cache: "no-store", // /servers é dado ao vivo (online/métrica) — navegador nunca pode servir do cache próprio
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
