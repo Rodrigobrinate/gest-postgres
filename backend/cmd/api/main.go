@@ -63,6 +63,7 @@ func run() error {
 	if err := authService.SeedAdminIfMissing(ctx, cfg.AdminPassword); err != nil {
 		return err
 	}
+	go authService.RunSessionRetentionSweep(ctx, 1*time.Hour)
 
 	repo := server.NewRepo(pool)
 	serverService := server.NewService(

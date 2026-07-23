@@ -127,7 +127,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "corpo inválido")
 		return
 	}
-	token, err := h.service.Login(r.Context(), req.Username, req.Password, clientIP(r))
+	ip := clientIP(r)
+	token, err := h.service.Login(r.Context(), req.Username, req.Password, ip, ip, r.UserAgent())
 	if err != nil {
 		if errors.Is(err, auth.ErrRateLimited) {
 			httpx.WriteError(w, http.StatusTooManyRequests, "muitas tentativas — aguarde antes de tentar de novo")
@@ -190,4 +191,66 @@ func (h *AuthHandler) StepUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]time.Time{"elevated_until": elevatedUntil})
+}
+
+// ListSessions — quem está logado agora (tela de Gestão de sessões).
+// requireAdmin no router: sessão/IP de OUTRO usuário é dado sensível,
+// viewer não precisa enxergar.
+func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := h.service.ListActiveSessions(r.Context())
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	currentID := ""
+	if sess, ok := auth.SessionFromContext(r.Context()); ok {
+		currentID = sess.ID
+	}
+	for i := range sessions {
+		sessions[i].Current = sessions[i].ID == currentID
+	}
+	httpx.WriteJSON(w, http.StatusOK, sessions)
+}
+
+// SessionHistory — log de sessão (ativa + revogada + expirada), mais
+// recente primeiro.
+func (h *AuthHandler) SessionHistory(w http.ResponseWriter, r *http.Request) {
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 200, 1, 1000)
+	sessions, err := h.service.ListSessionHistory(r.Context(), limit)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	currentID := ""
+	if sess, ok := auth.SessionFromContext(r.Context()); ok {
+		currentID = sess.ID
+	}
+	for i := range sessions {
+		sessions[i].Current = sessions[i].ID == currentID
+	}
+	httpx.WriteJSON(w, http.StatusOK, sessions)
+}
+
+// RevokeSession — botão "encerrar" na tela de Gestão de sessões, derruba
+// qualquer sessão (inclusive de outro admin) na hora. Já é admin-only pela
+// regra genérica do withAuth (DELETE = escrita).
+func (h *AuthHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	if err := h.service.RevokeSession(r.Context(), r.PathValue("id")); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LoginAttempts — tentativa de login (sucesso e falha), mais recente
+// primeiro. requireAdmin no router: IP/user-agent de tentativa alheia é
+// dado sensível.
+func (h *AuthHandler) LoginAttempts(w http.ResponseWriter, r *http.Request) {
+	limit := parseIntDefault(r.URL.Query().Get("limit"), 200, 1, 1000)
+	attempts, err := h.service.ListLoginAttempts(r.Context(), limit)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, attempts)
 }

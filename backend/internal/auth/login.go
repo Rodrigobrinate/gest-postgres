@@ -129,9 +129,12 @@ func hashToken(token string) string {
 // somente o hash (mesmo raciocínio de nunca persistir segredo em texto
 // puro usado no resto do projeto, ver internal/crypto). clientKey identifica
 // quem está tentando (IP de origem) pro throttle — nunca o username, ver
-// loginThrottle.
-func (s *Service) Login(ctx context.Context, username, password, clientKey string) (string, error) {
+// loginThrottle. ip/userAgent são gravados em login_attempts (toda
+// tentativa, sucesso ou falha) e em admin_sessions (só sucesso) — log
+// durável pra tela de "Gestão de sessões", separado do throttle em memória.
+func (s *Service) Login(ctx context.Context, username, password, clientKey, ip, userAgent string) (string, error) {
 	if err := throttle.checkLocked(clientKey); err != nil {
+		s.recordLoginAttempt(ctx, username, false, ip, userAgent)
 		return "", err
 	}
 
@@ -146,6 +149,7 @@ func (s *Service) Login(ctx context.Context, username, password, clientKey strin
 			// fecha a diferença de timing que permitiria enumerar usuários.
 			_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 			throttle.recordFailure(clientKey)
+			s.recordLoginAttempt(ctx, username, false, ip, userAgent)
 			return "", ErrInvalidCredentials
 		}
 		return "", fmt.Errorf("lendo usuário: %w", err)
@@ -153,9 +157,11 @@ func (s *Service) Login(ctx context.Context, username, password, clientKey strin
 
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
 		throttle.recordFailure(clientKey)
+		s.recordLoginAttempt(ctx, username, false, ip, userAgent)
 		return "", ErrInvalidCredentials
 	}
 	throttle.recordSuccess(clientKey)
+	s.recordLoginAttempt(ctx, username, true, ip, userAgent)
 
 	token, err := newToken()
 	if err != nil {
@@ -163,18 +169,24 @@ func (s *Service) Login(ctx context.Context, username, password, clientKey strin
 	}
 
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO admin_sessions (token_hash, user_id, expires_at)
-		VALUES ($1, $2, $3)
-	`, hashToken(token), userID, time.Now().Add(sessionTTL))
+		INSERT INTO admin_sessions (token_hash, user_id, expires_at, ip_address, user_agent)
+		VALUES ($1, $2, $3, $4, $5)
+	`, hashToken(token), userID, time.Now().Add(sessionTTL), ip, userAgent)
 	if err != nil {
 		return "", fmt.Errorf("criando sessão: %w", err)
 	}
 	return token, nil
 }
 
+// Logout marca a sessão como encerrada (revoked_at) em vez de apagar a
+// linha — a sessão vira histórico pra tela de "Gestão de sessões" (ver
+// ListSessionHistory) em vez de simplesmente sumir. Limpeza de verdade é o
+// RunSessionRetentionSweep, bem mais tarde.
 func (s *Service) Logout(ctx context.Context, token string) error {
-	if _, err := s.pool.Exec(ctx, `DELETE FROM admin_sessions WHERE token_hash = $1`, hashToken(token)); err != nil {
-		return fmt.Errorf("removendo sessão: %w", err)
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL
+	`, hashToken(token)); err != nil {
+		return fmt.Errorf("encerrando sessão: %w", err)
 	}
 	return nil
 }
@@ -194,7 +206,7 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 		SELECT s.id::text, s.created_at, s.expires_at, s.elevated_until, u.id::text, u.username, u.role
 		FROM admin_sessions s
 		JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = $1 AND s.expires_at > now()
+		WHERE s.token_hash = $1 AND s.expires_at > now() AND s.revoked_at IS NULL
 	`, th).Scan(&sess.ID, &createdAt, &sess.ExpiresAt, &sess.ElevatedUntil, &sess.UserID, &sess.Username, &sess.Role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -204,7 +216,7 @@ func (s *Service) ValidateSession(ctx context.Context, token string) (*Session, 
 	}
 
 	if time.Since(createdAt) > sessionAbsoluteCeiling {
-		_, _ = s.pool.Exec(ctx, `DELETE FROM admin_sessions WHERE token_hash = $1`, th)
+		_, _ = s.pool.Exec(ctx, `UPDATE admin_sessions SET revoked_at = now() WHERE token_hash = $1`, th)
 		return nil, ErrInvalidCredentials
 	}
 

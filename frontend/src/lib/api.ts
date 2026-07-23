@@ -663,6 +663,29 @@ export interface User {
   created_at: string;
 }
 
+export interface SessionInfo {
+  id: string;
+  username: string;
+  role: UserRole;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  revoked_at?: string;
+  online: boolean;
+  current: boolean;
+}
+
+export interface LoginAttempt {
+  id: string;
+  username: string;
+  success: boolean;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+}
+
 export type CronFrequency = "interval" | "daily" | "weekly";
 
 export interface CronJob {
@@ -1971,6 +1994,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ password }),
     }),
+
+  listSessions: () => request<SessionInfo[]>(`/api/v1/auth/sessions`),
+
+  sessionHistory: (limit = 200) =>
+    request<SessionInfo[]>(`/api/v1/auth/sessions/history?limit=${limit}`),
+
+  revokeSession: (id: string) => request<void>(`/api/v1/auth/sessions/${id}`, { method: "DELETE" }),
+
+  listLoginAttempts: (limit = 200) =>
+    request<LoginAttempt[]>(`/api/v1/auth/login-attempts?limit=${limit}`),
 
   checkUpdate: () => request<UpdateCheckResult>(`/api/v1/update-check`),
   updateStatus: () => request<UpdateApplyStatus>(`/api/v1/update/status`),

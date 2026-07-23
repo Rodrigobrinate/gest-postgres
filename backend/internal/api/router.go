@@ -31,6 +31,10 @@ func NewRouter(serverService *server.Service, infraService *infra.Service, authS
 	mux.HandleFunc("POST /api/v1/auth/logout", authHandler.Logout)
 	mux.HandleFunc("GET /api/v1/auth/me", authHandler.Me)
 	mux.HandleFunc("POST /api/v1/auth/step-up", authHandler.StepUp)
+	mux.HandleFunc("GET /api/v1/auth/sessions", requireAdmin(authHandler.ListSessions))
+	mux.HandleFunc("GET /api/v1/auth/sessions/history", requireAdmin(authHandler.SessionHistory))
+	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", authHandler.RevokeSession)
+	mux.HandleFunc("GET /api/v1/auth/login-attempts", requireAdmin(authHandler.LoginAttempts))
 
 	usersHandler := NewUsersHandler(authService)
 	mux.HandleFunc("GET /api/v1/users", requireAdmin(usersHandler.List))
