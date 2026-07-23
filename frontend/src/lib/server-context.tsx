@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 const STORAGE_KEY = "gestpg_selected_installation";
 const URL_PARAM = "installation";
@@ -73,16 +74,28 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   // momento devolve null (mesmo estado que existiria antes da hidratação
   // de qualquer forma), no navegador de verdade lê o valor salvo/da URL.
   const [selectedServer, setSelectedServer] = useState<SelectedServer | null>(readStoredServer);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     currentServerId = selectedServer?.id ?? null;
   }, [selectedServer]);
 
   const selectServer = (server: SelectedServer | null) => {
+    // Achado ao vivo: trocar de instalação sem limpar o cache do TanStack
+    // Query mostrava o dado da instalação ANTERIOR até o fetch novo
+    // sobrescrever — toda query nesse app usa a mesma chave (ex: ["servers"])
+    // pra qualquer instalação, já que o prefixo /proxy/{id} é decidido em
+    // runtime dentro de apiPath(), não faz parte da query key. Sem uma
+    // chave por instalação (mudaria centenas de useQuery espalhados pelo
+    // app inteiro), a saída mais simples é limpar tudo na troca — cada
+    // componente busca de novo do zero, mostra "carregando" de verdade em
+    // vez de piscar dado errado.
+    currentServerId = server?.id ?? null; // síncrono, antes do clear — apiPath já lê o valor certo na hora do refetch
     setSelectedServer(server);
     if (server) localStorage.setItem(STORAGE_KEY, JSON.stringify(server));
     else localStorage.removeItem(STORAGE_KEY);
     syncUrl(server);
+    queryClient.clear();
   };
 
   return (
