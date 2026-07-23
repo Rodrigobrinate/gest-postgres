@@ -7,7 +7,6 @@ import { API_URL } from "@/lib/api";
 // nunca são chamadas.
 // stats vem de uma chamada AO VIVO que o Worker faz em /api/v1/platform-stats
 // da instalação (mesmo endpoint que já alimenta os cards do dashboard local)
-// toda vez que a lista é buscada — mesmo dado que decide "online" também.
 export interface MasterServerStats {
   total_cpu_percent?: number;
   total_memory_used_mb?: number;
@@ -16,12 +15,20 @@ export interface MasterServerStats {
   disk_total_bytes?: number;
 }
 
+// listServers devolve só o cadastro (rápido, direto do banco) — SEM
+// online/stats. Cada card busca o próprio status via getStatus(id),
+// independente dos outros — achado ao vivo, pedido explícito do usuário:
+// instalações em lugares diferentes do mundo têm latência diferente, e
+// antes 1 lenta segurava a lista inteira (era tudo numa resposta só).
 export interface MasterServerSummary {
   id: string;
   name: string;
   tunnel_hostname: string;
-  online: boolean;
   version?: string;
+}
+
+export interface MasterServerStatus {
+  online: boolean;
   stats?: MasterServerStats;
 }
 
@@ -85,4 +92,5 @@ export const masterApi = {
     masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteServer: (id: string) => masterRequest<{ ok: boolean }>(`/servers/${id}`, { method: "DELETE" }),
   pingAll: () => masterRequest<PingResult[]>("/servers/ping", { method: "POST" }),
+  getStatus: (id: string) => masterRequest<MasterServerStatus>(`/servers/${id}/status`),
 };

@@ -11,7 +11,7 @@ import { LogoutButton } from "@/components/auth/logout-button";
 import { CreateInstallationDialog } from "./create-installation-dialog";
 import { EditInstallationDialog } from "./edit-installation-dialog";
 import { Database, Trash2, Radar } from "lucide-react";
-import type { MasterServerStats, PingResult } from "@/lib/master-api";
+import type { MasterServerStats, MasterServerSummary, PingResult } from "@/lib/master-api";
 
 function formatBytes(bytes: number) {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
@@ -89,25 +89,77 @@ function StatsRow({ stats }: { stats: MasterServerStats }) {
   );
 }
 
+// InstallationCard — status (online/offline + métrica) é buscado POR CARD,
+// independente dos outros. Achado ao vivo, pedido explícito do usuário:
+// instalações espalhadas pelo mundo têm latência bem diferente, e antes
+// tudo vinha numa resposta só (listInstallations fazia a checagem ao vivo
+// de todas de uma vez) — uma instalação lenta/travada segurava a lista
+// inteira. Agora a lista (nome/hostname/versão) é rápida e some batida no
+// banco; cada card dispara seu próprio poll de status.
+function InstallationCard({
+  installation,
+  onSelect,
+  onDelete,
+}: {
+  installation: MasterServerSummary;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["installation-status", installation.id],
+    queryFn: () => masterApi.getStatus(installation.id),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+  });
+
+  return (
+    <Card
+      className="hover:border-primary cursor-pointer transition-colors"
+      onClick={onSelect}
+    >
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-base">{installation.name}</CardTitle>
+        <div className="flex items-center gap-2">
+          <Badge variant={isLoading ? "secondary" : status?.online ? "default" : "destructive"}>
+            {isLoading ? "verificando..." : status?.online ? "online" : "offline"}
+          </Badge>
+          <EditInstallationDialog installation={installation} />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-muted-foreground truncate font-mono text-xs">{installation.tunnel_hostname}</p>
+        {status?.online && status.stats && <StatsRow stats={status.stats} />}
+        {installation.version && <p className="text-muted-foreground text-sm">versão {installation.version}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 // Tela inicial em MULTI_SERVER_MODE (hospedado no Cloudflare Pages, atrás
 // do Worker do sistema mestre) enquanto nenhuma instalação foi selecionada
-// — métricas básicas de TODAS as instalações gest-postgres cadastradas,
-// clicar numa entra no dashboard de sempre (intocado) escopado só àquela
-// instalação. "Instalação" aqui = um droplet/servidor gest-postgres inteiro
-// (backend + Postgres gerenciados dele), não confundir com a lista de
-// servidores Postgres que já existe DENTRO de cada instalação.
+// — lista rápida de TODAS as instalações gest-postgres cadastradas (cada
+// card busca a própria métrica, ver InstallationCard acima), clicar numa
+// entra no dashboard de sempre (intocado) escopado só àquela instalação.
+// "Instalação" aqui = um droplet/servidor gest-postgres inteiro (backend +
+// Postgres gerenciados dele), não confundir com a lista de servidores
+// Postgres que já existe DENTRO de cada instalação.
 export function InstallationsOverview() {
   const { selectServer } = useSelectedServer();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["master-servers"],
     queryFn: masterApi.listServers,
-    // Explícito mesmo já sendo o default global (providers.tsx) — cada
-    // busca dispara uma checagem AO VIVO em toda instalação (ver
-    // listInstallations no Worker), então esse intervalo é o que decide de
-    // quanto em quanto tempo "online"/métrica básica ficam frescas aqui.
-    refetchInterval: 5_000,
-    refetchIntervalInBackground: true,
   });
 
   const deleteMutation = useMutation({
@@ -181,37 +233,12 @@ export function InstallationsOverview() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {data?.map((s) => (
-          <Card
+          <InstallationCard
             key={s.id}
-            className="hover:border-primary cursor-pointer transition-colors"
-            onClick={() => selectServer({ id: s.id, name: s.name })}
-          >
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">{s.name}</CardTitle>
-              <div className="flex items-center gap-2">
-                <Badge variant={s.online ? "default" : "destructive"}>
-                  {s.online ? "online" : "offline"}
-                </Badge>
-                <EditInstallationDialog installation={s} />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteMutation.mutate(s.id);
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-muted-foreground truncate font-mono text-xs">{s.tunnel_hostname}</p>
-              {s.online && s.stats && <StatsRow stats={s.stats} />}
-              {s.version && <p className="text-muted-foreground text-sm">versão {s.version}</p>}
-            </CardContent>
-          </Card>
+            installation={s}
+            onSelect={() => selectServer({ id: s.id, name: s.name })}
+            onDelete={() => deleteMutation.mutate(s.id)}
+          />
         ))}
       </div>
     </div>
